@@ -109,3 +109,7 @@ Docker: `docker build -t warranty-triage . && docker run --env-file .env -p 1808
 ## Production boundary
 
 Uploads are limited by bytes, pixel count, number of images, and description length; checklist IDs and storage paths go through an allowlist. The image runs as UID 10001 behind an nginx configuration with security headers. Authentication is intentionally outside this PoV: expose it only behind an IdP/API gateway with TLS, request quotas, and object storage in place of the local media directory.
+
+## License
+
+MIT, see [LICENSE](LICENSE).
