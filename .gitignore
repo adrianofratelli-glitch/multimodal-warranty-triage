@@ -1,0 +1,35 @@
+# credenciais — NUNCA commitar
+.env
+.env.bak
+*.env.bak
+
+# python
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.ruff_cache/
+
+# node
+node_modules/
+dist/
+
+# imagens (storage local do PoV)
+media/
+
+# fotos de seed — o repo não bundla fotos de exemplo; cada usuário aponta
+# SEED_IMAGES_DIR (.env) pra sua própria pasta, ou gera placeholders sintéticos
+# com generate_placeholders.py / generate_catalogo_placeholders.py. Nunca commitar
+# fotos reais de catálogo (copyright do fabricante/varejista).
+seed_images/
+
+# misc
+.DS_Store
+
+# playwright
+test-results/
+playwright-report/
+
+# internal-only presentation scripts — not part of the app, never publish
+docs/PoV-Roteiro-Apresentacao-PT.pdf
+docs/PoV-Presentation-Script-EN.pdf

@@ -1,0 +1,19 @@
+{
+  "name": "Análise de Garantia Multimodal",
+  "image": "mcr.microsoft.com/devcontainers/base:ubuntu",
+  "features": {
+    "ghcr.io/devcontainers/features/python:1": { "version": "3.11" },
+    "ghcr.io/devcontainers/features/node:1": { "version": "20" }
+  },
+  "forwardPorts": [8100, 5190],
+  "portsAttributes": {
+    "8100": { "label": "FastAPI (backend)" },
+    "5190": { "label": "Vite (frontend)" }
+  },
+  "postCreateCommand": "python -m venv backend/.venv && backend/.venv/bin/pip install -r backend/requirements.txt -r backend/requirements-dev.txt && cd frontend && npm install --legacy-peer-deps",
+  "customizations": {
+    "vscode": {
+      "extensions": ["ms-python.python", "dbaeumer.vscode-eslint"]
+    }
+  }
+}
