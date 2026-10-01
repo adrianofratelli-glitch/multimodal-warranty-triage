@@ -23,12 +23,12 @@ import observability
 logger = logging.getLogger("mm_garantia.llm")
 
 client = AsyncAnthropic(
-    api_key="dummy",  # SDK exige valor não-vazio; auth real vai no header api-key abaixo
+    api_key=os.getenv("ANTHROPIC_API_KEY", ""),  # o gateway valida x-api-key (o SDK o monta a partir de api_key=) e rejeita "dummy"
     base_url=config.ANTHROPIC_BASE_URL,
-    default_headers={"api-key": os.getenv("ANTHROPIC_API_KEY", "")},
+    default_headers={"Authorization": "Bearer " + os.getenv("ANTHROPIC_API_KEY", "")},
     timeout=float(os.getenv("ANTHROPIC_TIMEOUT_SECONDS", "45")),
     max_retries=int(os.getenv("ANTHROPIC_MAX_RETRIES", "2")),
-)  # Grove/Azure APIM espera header "api-key", não "x-api-key" (o que api_key= geraria)
+)  # O gateway Grove espera "Authorization: Bearer", não "x-api-key" (o que api_key= geraria)
 MODEL = config.ANTHROPIC_MODEL
 
 SYSTEM = """Voce e um analista de triagem de garantia de uma loja online de moveis e itens para casa.
