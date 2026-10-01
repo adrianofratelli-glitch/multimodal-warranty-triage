@@ -17,7 +17,7 @@ Tese comercial central: **um cluster Atlas único faz tudo** — não há vector
 | Camada | Tecnologia |
 |---|---|
 | Backend | FastAPI (Python 3.14, async), Motor (driver Mongo async) |
-| LLM de visão | Claude (Anthropic), via Grove/Azure APIM — header `api-key` |
+| LLM de visão | Claude (Anthropic), via gateway Grove — `Authorization: Bearer` + chave real em `x-api-key` |
 | Embedding multimodal | Voyage AI `voyage-multimodal-3.5`, 1024 dimensões |
 | Banco | MongoDB Atlas — único cluster para dados operacionais, vetor, full-text e change streams |
 | Frontend | React 18 + Vite + LeafyGreen (design system MongoDB), sem TypeScript, sem router, sem state lib |
