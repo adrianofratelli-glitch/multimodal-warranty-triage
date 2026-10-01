@@ -1,22 +1,22 @@
 :root {
-  --bg-primary: #001e2b;
-  --bg-secondary: #112733;
-  --bg-card: #1c2d38;
-  --bg-card-hover: #263c49;
-  --border-subtle: #3d4f58;
+  --bg-primary: #061621;
+  --bg-secondary: #001e2b;
+  --bg-card: #0a2633;
+  --bg-card-hover: #10303f;
+  --border-subtle: #2a424d;
   --border-accent: rgba(0, 237, 100, 0.25);
-  --text-pri: #e8edeb;
-  --text-sec: #c1c7c6;
-  --text-muted: #889397;
+  --text-pri: #fdfff5;
+  --text-sec: #cdd5ce;
+  --text-muted: #9ea2a1;
   --accent: #00ed64;
   --accent-glow: rgba(0, 237, 100, 0.1);
-  --link: #0498ec;
-  --orange: #ffc010;
-  --cyan: #0498ec;
+  --link: #3d9dff;
+  --orange: #ffad00;
+  --cyan: #3d9dff;
   --teal: #00a35c;
   --mdb-red: #ff6960;
-  --font-sans: 'Outfit', 'Helvetica Neue', Arial, sans-serif;
-  --font-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+  --font-sans: 'Special Gothic', 'Helvetica Neue', Arial, sans-serif;
+  --font-mono: 'Source Code Pro', ui-monospace, SFMono-Regular, Menlo, monospace;
   color-scheme: dark;
 }
 
@@ -123,7 +123,7 @@ nav.top-nav {
 .nav-pill {
   font-size: 0.72rem;
   font-weight: 600;
-  font-family: 'JetBrains Mono';
+  font-family: 'Source Code Pro';
   padding: 0.25rem 0.7rem;
   border-radius: 20px;
   cursor: pointer;
@@ -146,7 +146,7 @@ nav.top-nav {
 }
 
 .status-pill {
-  font-family: 'JetBrains Mono';
+  font-family: 'Source Code Pro';
   font-size: 0.62rem;
   font-weight: 600;
   text-transform: uppercase;
@@ -188,7 +188,7 @@ nav.top-nav {
 }
 
 .hero-kicker {
-  font-family: 'JetBrains Mono';
+  font-family: 'Source Code Pro';
   font-size: 0.7rem;
   font-weight: 600;
   text-transform: uppercase;
@@ -267,7 +267,7 @@ nav.top-nav {
   font-size: 1.5rem;
   font-weight: 800;
   color: var(--text-pri);
-  font-family: 'JetBrains Mono';
+  font-family: 'Source Code Pro';
   letter-spacing: -0.03em;
   line-height: 1.2;
 }
@@ -280,7 +280,7 @@ nav.top-nav {
   font-size: 0.65rem;
   color: var(--text-muted);
   margin-top: 0.35rem;
-  font-family: 'JetBrains Mono';
+  font-family: 'Source Code Pro';
   text-transform: uppercase;
   letter-spacing: 0.08em;
 }
@@ -407,7 +407,7 @@ nav.top-nav {
   justify-content: center;
   flex-shrink: 0;
   font-size: 13px;
-  font-family: 'JetBrains Mono';
+  font-family: 'Source Code Pro';
   border: 1px solid var(--border-subtle);
   color: var(--text-muted);
 }
@@ -478,7 +478,7 @@ footer.app-footer {
 footer.app-footer p {
   font-size: 0.8rem;
   color: var(--text-muted);
-  font-family: 'JetBrains Mono';
+  font-family: 'Source Code Pro';
 }
 
 /* ---------- Análise de Garantia Multimodal: extras ---------- */
@@ -493,7 +493,7 @@ footer.app-footer p {
 .conf-label {
   font-size: 12px;
   color: var(--text-muted);
-  font-family: 'JetBrains Mono';
+  font-family: 'Source Code Pro';
   white-space: nowrap;
 }
 .conf-track {
@@ -601,7 +601,7 @@ footer.app-footer p {
   background: rgba(0, 237, 100, 0.08);
 }
 .rev-item .rev-num {
-  font-family: 'JetBrains Mono';
+  font-family: 'Source Code Pro';
   font-size: 0.8rem;
   color: var(--text-pri);
   font-weight: 600;
