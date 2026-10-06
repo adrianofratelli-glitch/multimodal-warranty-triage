@@ -14,27 +14,30 @@ import hashlib
 import io
 import json
 import logging
+import os
 import time
 from datetime import UTC, datetime, timedelta
 from uuid import uuid4
 
 import anthropic
 import voyageai.error as voyageai_error
-from bson import ObjectId
+from bson import BSON, ObjectId
 from bson.errors import InvalidId
 from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.concurrency import run_in_threadpool
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
-from PIL import Image, UnidentifiedImageError
+from PIL import Image, ImageOps, UnidentifiedImageError
 from pydantic import BaseModel, Field
 
 import config
+import langfuse_tracing as tracing
 import observability
 import rag
-from db import SafeQueryError, catalogo, chamados, get_client, pedidos, safe_query
+from db import SafeQueryError, catalogo, chamados, db, get_client, pedidos, safe_query
 from defeitos_catalog import compor_frase, derivar_tipo_defeito
+from guardrails_triagem import avaliar_instrucao, mascarar_pii
 from llm import MODEL, analisar_veredito
 from storage import upload_imagem, url_for
 from voyage import EMBED_DIM, embed_multimodal
@@ -56,6 +59,17 @@ PROVIDER_TRANSIENT_ERRORS = (
 # de novo). Curta o suficiente para não confundir com uma nova triagem legítima
 # do mesmo produto minutos depois.
 IDEMPOTENCY_WINDOW_SECONDS = 60
+# Quanto um envio idêntico concorrente espera o primeiro terminar antes de 409.
+IDEMPOTENCY_WAIT_SECONDS = float(os.getenv("IDEMPOTENCY_WAIT_SECONDS", "120"))
+IDEMPOTENCIA_COLL = "idempotencia"
+EMBED_DEADLINE_SECONDS = float(os.getenv("EMBED_DEADLINE_SECONDS", "60"))
+
+# Pillow recusa (DecompressionBombError) imagens acima do nosso teto de pixels,
+# antes de alocar memória para decodificar; o check abaixo dá a mensagem amigável.
+Image.MAX_IMAGE_PIXELS = config.MAX_IMAGE_PIXELS
+# MPO é o JPEG multi-imagem de celulares; o resto (GIF, WebP, BMP, TIFF, SVG...) é recusado
+# mesmo que o content-type diga image/jpeg (MIME spoof).
+ALLOWED_FORMATS = {"JPEG", "PNG", "MPO"}
 
 observability.setup_logging()
 logger = logging.getLogger("mm_garantia")
@@ -104,9 +118,21 @@ app.mount(config.MEDIA_URL_PREFIX, StaticFiles(directory=str(config.MEDIA_ROOT))
 ALLOWED_MEDIA = {"image/jpeg", "image/jpg", "image/png"}
 
 
+# Erro de entrada é 4xx; só falha de infraestrutura (banco, provedor) é 503. O
+# corpo é sempre {error: {kind, message}}, que o frontend mostra num Banner.
+_STATUS_POR_KIND = {
+    "imagem": 422,
+    "imagem_grande": 413,
+    "entrada": 422,
+    "nao_encontrado": 404,
+    "em_processamento": 409,
+}
+
+
 @app.exception_handler(SafeQueryError)
 async def safe_query_handler(_: Request, exc: SafeQueryError):
-    return JSONResponse(status_code=503, content={"error": {"kind": exc.kind, "message": exc.message}})
+    status = _STATUS_POR_KIND.get(exc.kind, 503)
+    return JSONResponse(status_code=status, content={"error": {"kind": exc.kind, "message": exc.message}})
 
 
 def clean(doc):
@@ -174,7 +200,7 @@ async def lookup(body: LookupBody):
             pedidos().distinct("numero_pedido", maxTimeMS=config.MAX_TIME_MS)
         )
         raise SafeQueryError(
-            "config",
+            "nao_encontrado",
             f"Pedido {numero} não encontrado. Tente um de: {', '.join(sorted(disponiveis)) or '(seed pendente)'}.",
         )
     return {"numero_pedido": numero, "produtos": doc["produtos"]}
@@ -184,7 +210,7 @@ async def lookup(body: LookupBody):
 async def checklist(categoria: str):
     doc = await safe_query(catalogo().find_one({"categoria": categoria}, {"_id": 0}, max_time_ms=config.MAX_TIME_MS))
     if not doc:
-        raise SafeQueryError("config", f"Categoria '{categoria}' sem checklist no catálogo.")
+        raise SafeQueryError("nao_encontrado", f"Categoria '{categoria}' sem checklist no catálogo.")
     return {"categoria": categoria, "itens": doc["itens"]}
 
 
@@ -193,7 +219,7 @@ async def _resolver_produto(numero_pedido: str, sku: str) -> dict:
     for p in (doc or {}).get("produtos", []):
         if p["sku"] == sku:
             return p
-    raise SafeQueryError("config", f"SKU {sku} não pertence ao pedido {numero_pedido}.")
+    raise SafeQueryError("entrada", f"SKU {sku} não pertence ao pedido {numero_pedido}.")
 
 
 async def _tabela_catalogo(categoria: str) -> dict:
@@ -202,7 +228,11 @@ async def _tabela_catalogo(categoria: str) -> dict:
 
 
 async def _ler_e_normalizar(upload: UploadFile) -> tuple[Image.Image, bytes]:
-    """Valida, lê e normaliza um UploadFile para JPEG (mesmo contrato da foto principal)."""
+    """Valida, lê e normaliza um UploadFile para JPEG (mesmo contrato da foto principal).
+
+    O nome do arquivo enviado nunca é usado (a chave de storage é gerada aqui), o
+    content-type só é um primeiro filtro: quem decide é o formato real dos bytes.
+    """
     if upload.content_type not in ALLOWED_MEDIA:
         raise SafeQueryError("imagem", f"Formato '{upload.content_type}' não aceito. Envie JPEG ou PNG.")
     imagem_bytes = await upload.read(config.MAX_IMAGE_BYTES + 1)
@@ -210,17 +240,25 @@ async def _ler_e_normalizar(upload: UploadFile) -> tuple[Image.Image, bytes]:
         raise SafeQueryError("imagem", "Nenhuma imagem recebida.")
     if len(imagem_bytes) > config.MAX_IMAGE_BYTES:
         mb = config.MAX_IMAGE_BYTES // (1024 * 1024)
-        raise SafeQueryError("imagem", f"Imagem maior que o limite de {mb} MB.")
+        raise SafeQueryError("imagem_grande", f"Imagem maior que o limite de {mb} MB.")
     try:
         source = Image.open(io.BytesIO(imagem_bytes))
+        if source.format not in ALLOWED_FORMATS:
+            raise SafeQueryError(
+                "imagem", f"O conteúdo do arquivo é {source.format or 'desconhecido'}, não JPEG/PNG. Envie uma foto JPEG ou PNG."
+            )
         if source.width * source.height > config.MAX_IMAGE_PIXELS:
             raise SafeQueryError(
                 "imagem",
                 f"Imagem excede o limite de {config.MAX_IMAGE_PIXELS:,} pixels.",
             )
-        pil = source.convert("RGB")
-    except (UnidentifiedImageError, OSError) as e:
-        raise SafeQueryError("imagem", "Arquivo enviado não é uma imagem válida.") from e
+        # Aplica a orientação do EXIF antes de descartá-lo: a foto de celular chega
+        # "em pé" e nenhum metadado (GPS, aparelho, EXIF malformado) segue adiante.
+        pil = ImageOps.exif_transpose(source).convert("RGB")
+    except SafeQueryError:
+        raise
+    except (UnidentifiedImageError, OSError, ValueError, SyntaxError, Image.DecompressionBombError) as e:
+        raise SafeQueryError("imagem", "Arquivo enviado não é uma imagem válida ou está corrompido.") from e
     # Normaliza TUDO para JPEG: garante que o media_type bate com os bytes e que o
     # formato é sempre suportado pelo Claude (evita 400 com PNG/WebP/content-type
     # divergente). A mesma imagem normalizada vai pro storage, Voyage e Claude.
@@ -228,7 +266,7 @@ async def _ler_e_normalizar(upload: UploadFile) -> tuple[Image.Image, bytes]:
     # disso a API redimensiona do lado dela cobrando os tokens da imagem cheia.
     pil.thumbnail((1568, 1568))
     _buf = io.BytesIO()
-    pil.save(_buf, format="JPEG", quality=90)
+    pil.save(_buf, format="JPEG", quality=90)  # sem exif=: o JPEG sai sem metadados
     return pil, _buf.getvalue()
 
 
@@ -318,6 +356,70 @@ async def _buscar_chamado_idempotente(idempotency_hash: str) -> dict | None:
     )
 
 
+def _idempotencia():
+    return db()[IDEMPOTENCIA_COLL]
+
+
+async def _reservar_idempotencia(idempotency_hash: str, request_id: str) -> bool:
+    """Reserva atômica do hash: `_id` único em `idempotencia` funciona como trava.
+
+    Sem isso, dois envios idênticos simultâneos (duplo clique, duas abas, retry de
+    rede) passavam juntos pelo find_one acima e os dois pagavam embedding + LLM e
+    gravavam dois chamados. Com a trava, só o primeiro processa; o segundo espera
+    o chamado aparecer e devolve o mesmo. Uma reserva mais velha que a janela
+    (processo que morreu no meio) pode ser retomada. TTL em `expires_at` limpa o resto.
+    """
+    agora = datetime.now(UTC)
+    doc = {
+        "_id": idempotency_hash,
+        "created_at": agora,
+        "expires_at": agora + timedelta(seconds=IDEMPOTENCY_WAIT_SECONDS + IDEMPOTENCY_WINDOW_SECONDS),
+        "request_id": request_id,
+    }
+    try:
+        await safe_query(_idempotencia().insert_one(doc))
+        return True
+    except SafeQueryError as e:
+        if e.kind != "duplicado":
+            raise
+    vencida = agora - timedelta(seconds=IDEMPOTENCY_WAIT_SECONDS)
+    res = await safe_query(
+        _idempotencia().update_one(
+            {"_id": idempotency_hash, "created_at": {"$lt": vencida}},
+            {"$set": {"created_at": agora, "expires_at": doc["expires_at"], "request_id": request_id}},
+        )
+    )
+    return res.modified_count == 1
+
+
+async def _liberar_idempotencia(idempotency_hash: str, request_id: str) -> None:
+    """Libera a trava ao fim do processamento (com sucesso ou não)."""
+    try:
+        await safe_query(_idempotencia().delete_one({"_id": idempotency_hash, "request_id": request_id}))
+    except SafeQueryError:
+        logger.warning("não foi possível liberar a reserva de idempotência (expira pelo TTL)")
+
+
+async def _aguardar_chamado_concorrente(idempotency_hash: str) -> dict:
+    prazo = time.monotonic() + IDEMPOTENCY_WAIT_SECONDS
+    while time.monotonic() < prazo:
+        existente = await _buscar_chamado_idempotente(idempotency_hash)
+        if existente:
+            return existente
+        reserva = await safe_query(_idempotencia().find_one({"_id": idempotency_hash}, {"_id": 1}))
+        if reserva is None:
+            # Trava liberada: ou o primeiro envio terminou (o chamado já existe) ou falhou.
+            existente = await _buscar_chamado_idempotente(idempotency_hash)
+            if existente:
+                return existente
+            break
+        await asyncio.sleep(0.5)
+    raise SafeQueryError(
+        "em_processamento",
+        "Um envio idêntico deste chamado ainda está em processamento ou falhou. Aguarde alguns segundos e tente de novo.",
+    )
+
+
 def _resposta_de_chamado_existente(doc: dict) -> dict:
     """Reconstrói o payload de resposta de /api/analisar a partir de um chamado
     já persistido (replay idempotente — achado #1 — ou o próprio doc recém-criado).
@@ -336,12 +438,25 @@ def _resposta_de_chamado_existente(doc: dict) -> dict:
         "funnel": {"modo": "idempotent_replay"},
         "embedding_model": VOYAGE_MODEL,
         "embedding_dim": len(doc["embedding"]) if doc.get("embedding") else EMBED_DIM,
+        "persistencia": doc.get("persistencia"),
         "idempotent_replay": True,
     })
 
 
+def _cancelar(tasks: list) -> None:
+    for t in tasks:
+        t.cancel()
+
+
+async def _embed(frase: str, pil: Image.Image) -> list[float]:
+    return await asyncio.wait_for(
+        run_in_threadpool(embed_multimodal, frase, pil, "query"), timeout=EMBED_DEADLINE_SECONDS
+    )
+
+
 @app.post("/api/analisar")
 async def analisar(
+    request: Request,
     imagem: UploadFile,
     numero_pedido: str = Form(...),
     sku: str = Form(...),
@@ -354,30 +469,31 @@ async def analisar(
     fotos_extra: list[UploadFile] = File(default=[]),
     fotos_extra_itens: list[str] = Form(default=[]),
 ):
-    produto = await _resolver_produto(numero_pedido, sku)
-    categoria = produto["categoria"]
-
+    if modo not in {"vector", "hybrid"}:
+        raise HTTPException(status_code=422, detail="modo deve ser vector ou hybrid")
     if len(fotos_extra) != len(fotos_extra_itens):
         raise HTTPException(status_code=422, detail="Cada foto extra precisa estar associada a exatamente um item do checklist.")
+    if len(descricao) > config.MAX_DESCRIPTION_CHARS:
+        raise HTTPException(status_code=422, detail="descrição excede o limite permitido")
 
+    produto = await _resolver_produto(numero_pedido, sku)
+    categoria = produto["categoria"]
     tabela = await _tabela_catalogo(categoria)
     checklist, fotos_extra_itens = _validar_entrada_analise(
         numero_pedido, sku, descricao, checklist, fotos_extra_itens, tabela
     )
-    if modo not in {"vector", "hybrid"}:
-        raise HTTPException(status_code=422, detail="modo deve ser vector ou hybrid")
 
     pil, imagem_jpeg = await _ler_e_normalizar(imagem)
     media_type = "image/jpeg"
+    extras_normalizadas = [await _ler_e_normalizar(f) for f in fotos_extra]
 
-    # Achado #1 — idempotência: hash determinístico da entrada mais estável
-    # (foto principal normalizada + sku/pedido + checklist). Um duplo-clique ou
-    # retry de rede do frontend reenvia o mesmo multipart byte-a-byte, então o
-    # hash bate e devolvemos o chamado já criado em vez de pagar LLM+embedding
-    # de novo. Janela curta (60s) pra não confundir com uma nova triagem
-    # legítima do mesmo produto minutos depois.
+    # Idempotência: hash determinístico da entrada mais estável (foto principal
+    # normalizada + sku/pedido + checklist) + reserva atômica em `idempotencia`.
+    request_id = request.headers.get("x-request-id") or uuid4().hex[:16]
     idempotency_hash = _idempotency_hash(imagem_jpeg, numero_pedido, sku, checklist)
     existente = await _buscar_chamado_idempotente(idempotency_hash)
+    if not existente and not await _reservar_idempotencia(idempotency_hash, request_id):
+        existente = await _aguardar_chamado_concorrente(idempotency_hash)
     if existente:
         logger.info(
             "idempotent replay numero_pedido=%s sku=%s numero_chamado=%s",
@@ -386,6 +502,23 @@ async def analisar(
         observability.metrics.bump("analisar_idempotent_replay")
         return _resposta_de_chamado_existente(existente)
 
+    try:
+        return await _processar_analise(
+            request_id=request_id, numero_pedido=numero_pedido, produto=produto, categoria=categoria,
+            tabela=tabela, checklist=checklist, descricao=descricao, modo=modo, pil=pil,
+            imagem_jpeg=imagem_jpeg, media_type=media_type, extras_normalizadas=extras_normalizadas,
+            fotos_extra_itens=fotos_extra_itens, idempotency_hash=idempotency_hash,
+        )
+    finally:
+        # Sucesso: o próprio chamado (janela de 60 s) passa a responder aos replays.
+        # Falha: o próximo envio idêntico pode tentar de novo na hora.
+        await _liberar_idempotencia(idempotency_hash, request_id)
+
+
+async def _processar_analise(
+    *, request_id, numero_pedido, produto, categoria, tabela, checklist, descricao, modo, pil,
+    imagem_jpeg, media_type, extras_normalizadas, fotos_extra_itens, idempotency_hash,
+):
     chamado = {
         "categoria": categoria,
         "produto": {"sku": produto["sku"], "nome": produto["nome"]},
@@ -393,6 +526,21 @@ async def analisar(
         "descricao_cliente": descricao,
     }
     frase = compor_frase(chamado)
+    # PII sai antes de qualquer coisa que deixe o processo além do banco: prompt do
+    # Claude, trace do Langfuse e logs. O relato original fica só no documento.
+    frase_mascarada = mascarar_pii(frase)
+    alerta_texto = avaliar_instrucao(descricao)
+    if alerta_texto["suspeito"]:
+        observability.metrics.bump("relato_instrucao_suspeita")
+        logger.warning("relato com possível instrução embutida request_id=%s motivo=%s", request_id, alerta_texto["motivo"])
+    trace = tracing.start_trace(
+        name="triagem_garantia",
+        input_text=frase_mascarada,
+        session_id=request_id,
+        metadata={"categoria": categoria, "sku": produto["sku"], "modo": modo,
+                  "fotos_extra": len(extras_normalizadas), "alerta_relato": alerta_texto["suspeito"]},
+    )
+
     numero_chamado = _gerar_numero_chamado()
     key = f"chamados/{numero_chamado}/foto.jpg"
     # Upload em task paralela: não bloqueia o caminho crítico (embedding → RAG →
@@ -400,8 +548,6 @@ async def analisar(
     upload_task = asyncio.create_task(
         run_in_threadpool(upload_imagem, imagem_jpeg, key, media_type)
     )
-
-    extras_normalizadas = [await _ler_e_normalizar(f) for f in fotos_extra]
     extras_upload_tasks = [
         asyncio.create_task(
             run_in_threadpool(
@@ -410,40 +556,28 @@ async def analisar(
         )
         for i, ((_, jpeg_bytes), item) in enumerate(zip(extras_normalizadas, fotos_extra_itens, strict=True))
     ]
+    todas_uploads = [upload_task, *extras_upload_tasks]
 
+    t_embed = time.perf_counter()
     try:
-        query_vector = await run_in_threadpool(embed_multimodal, frase, pil, "query")
+        query_vector = await _embed(frase, pil)
+        # Embedding de cada foto extra: mesma frase do chamado (o item já está nela
+        # via checklist), contrato idêntico ao da foto principal.
+        extras_vetores = await asyncio.gather(*(_embed(frase, extra_pil) for extra_pil, _ in extras_normalizadas))
     except PROVIDER_TRANSIENT_ERRORS as e:
-        upload_task.cancel()
-        for t in extras_upload_tasks:
-            t.cancel()
-        logger.warning("multimodal embedding failed (%s) numero_pedido=%s: %s", type(e).__name__, numero_pedido, str(e)[:200])
-        raise SafeQueryError("embedding", f"Falha ao gerar o embedding multimodal: {str(e)[:160]}") from e
+        _cancelar(todas_uploads)
+        logger.warning("multimodal embedding failed (%s) request_id=%s: %s", type(e).__name__, request_id, str(e)[:200])
+        tracing.finish_trace(trace, output={"erro": "embedding", "tipo": type(e).__name__})
+        raise SafeQueryError(
+            "embedding", "A Voyage não respondeu a tempo depois de novas tentativas. Tente de novo em instantes."
+        ) from e
     except Exception as e:
-        upload_task.cancel()
-        for t in extras_upload_tasks:
-            t.cancel()
-        logger.critical("Unexpected error in multimodal embedding — programming bug suspected numero_pedido=%s", numero_pedido, exc_info=True)
+        _cancelar(todas_uploads)
+        logger.critical("Unexpected error in multimodal embedding — programming bug suspected request_id=%s", request_id, exc_info=True)
+        tracing.finish_trace(trace, output={"erro": "embedding_interno"})
         raise SafeQueryError("embedding", "Falha inesperada ao gerar o embedding multimodal.") from e
-
-    # Embedding de cada foto extra: mesma frase do chamado (o item já está nela
-    # via checklist), contrato idêntico ao da foto principal.
-    try:
-        extras_vetores = await asyncio.gather(
-            *(run_in_threadpool(embed_multimodal, frase, extra_pil, "query") for extra_pil, _ in extras_normalizadas)
-        )
-    except PROVIDER_TRANSIENT_ERRORS as e:
-        upload_task.cancel()
-        for t in extras_upload_tasks:
-            t.cancel()
-        logger.warning("multimodal embedding (foto extra) failed (%s) numero_pedido=%s: %s", type(e).__name__, numero_pedido, str(e)[:200])
-        raise SafeQueryError("embedding", f"Falha ao gerar o embedding de uma foto extra: {str(e)[:160]}") from e
-    except Exception as e:
-        upload_task.cancel()
-        for t in extras_upload_tasks:
-            t.cancel()
-        logger.critical("Unexpected error in extra-photo embedding — programming bug suspected numero_pedido=%s", numero_pedido, exc_info=True)
-        raise SafeQueryError("embedding", "Falha inesperada ao gerar o embedding de uma foto extra.") from e
+    tracing.log_span(trace, name="voyage_embedding", output_data={"dim": len(query_vector), "vetores": 1 + len(extras_vetores)},
+                     metadata={"model": VOYAGE_MODEL, "latency_ms": int((time.perf_counter() - t_embed) * 1000)})
 
     # Identidade e precedentes são consultas independentes sobre o mesmo vetor.
     # Identidade roda pra foto principal E pra cada foto extra — o mais restritivo
@@ -452,11 +586,18 @@ async def analisar(
         busca = rag.hybrid_search(query_vector, frase, categoria)
     else:
         busca = rag.vector_search(query_vector, categoria)
-    identidade_principal, *identidades_extra, (precedentes, funnel) = await asyncio.gather(
-        rag.verificar_identidade(query_vector, produto["sku"], categoria),
-        *(rag.verificar_identidade(v, produto["sku"], categoria) for v in extras_vetores),
-        busca,
-    )
+    t_busca = time.perf_counter()
+    try:
+        identidade_principal, *identidades_extra, (precedentes, funnel) = await asyncio.gather(
+            rag.verificar_identidade(query_vector, produto["sku"], categoria),
+            *(rag.verificar_identidade(v, produto["sku"], categoria) for v in extras_vetores),
+            busca,
+        )
+    except BaseException:
+        _cancelar(todas_uploads)
+        tracing.finish_trace(trace, output={"erro": "busca"})
+        raise
+    funnel["latency_ms"] = int((time.perf_counter() - t_busca) * 1000)
     identidade = {
         **identidade_principal,
         "fotos_extra": [
@@ -465,25 +606,28 @@ async def analisar(
         ],
         "abaixo_threshold": identidade_principal["abaixo_threshold"] or any(i["abaixo_threshold"] for i in identidades_extra),
     }
+    tracing.log_span(trace, name="atlas_vector_search",
+                     output_data={"precedentes": len(precedentes), "identidade_score": identidade.get("score"),
+                                  "identidade_abaixo_threshold": identidade["abaixo_threshold"]},
+                     metadata={"modo": funnel.get("modo"), "latency_ms": funnel["latency_ms"]})
 
-    try:
-        imagens_extra_veredito = [
-            (jpeg_bytes, media_type, item)
-            for (_, jpeg_bytes), item in zip(extras_normalizadas, fotos_extra_itens, strict=True)
-        ]
-        veredito = await analisar_veredito(imagem_jpeg, media_type, frase, precedentes, imagens_extra_veredito)
-    except PROVIDER_TRANSIENT_ERRORS as e:
-        upload_task.cancel()
-        for t in extras_upload_tasks:
-            t.cancel()
-        logger.warning("Claude verdict call failed (%s) numero_pedido=%s: %s", type(e).__name__, numero_pedido, str(e)[:200])
-        raise SafeQueryError("modelo", f"Falha ao consultar o Claude: {str(e)[:160]}") from e
-    except Exception as e:
-        upload_task.cancel()
-        for t in extras_upload_tasks:
-            t.cancel()
-        logger.critical("Unexpected error calling Claude verdict — programming bug suspected numero_pedido=%s", numero_pedido, exc_info=True)
-        raise SafeQueryError("modelo", "Falha inesperada ao consultar o Claude.") from e
+    imagens_extra_veredito = [
+        (jpeg_bytes, media_type, item)
+        for (_, jpeg_bytes), item in zip(extras_normalizadas, fotos_extra_itens, strict=True)
+    ]
+    # analisar_veredito nunca lança por falha do provedor: devolve o fallback de
+    # revisão manual. Exceção aqui é bug e sobe como 500 (com a trava liberada).
+    veredito = await analisar_veredito(
+        imagem_jpeg, media_type, frase_mascarada, precedentes, imagens_extra_veredito, alerta_texto=alerta_texto
+    )
+    meta = veredito.get("_meta", {})
+    tracing.log_generation(
+        trace, name="claude_veredito", model=meta.get("model", MODEL), input_text=frase_mascarada,
+        output={k: v for k, v in veredito.items() if k != "_meta"},
+        usage={"input": meta.get("input_tokens", 0), "output": meta.get("output_tokens", 0), "unit": "TOKENS"}
+        if "input_tokens" in meta else None,
+        metadata={"mode": meta.get("mode"), "latency_ms": meta.get("latency_ms"), "gateway": "grove"},
+    )
 
     # Achado #2 — a chamada cara ao Claude (paga) já aconteceu nesse ponto.
     # Persistimos o veredito AGORA, num estado intermediário sem depender do
@@ -509,7 +653,9 @@ async def analisar(
         "idempotency_hash": idempotency_hash,
         "created_at": datetime.now(UTC),
     }
+    t_insert = time.perf_counter()
     numero_chamado = await _inserir_chamado_com_retry(doc)
+    insert_ms = (time.perf_counter() - t_insert) * 1000
 
     try:
         uri, imagem_url = await upload_task
@@ -519,9 +665,10 @@ async def analisar(
         # terminou de subir. status fica "veredito_pronto_aguardando_upload"
         # em vez de se perder; o chamado pode ser reconciliado depois.
         logger.exception("image upload failed after verdict was persisted numero_chamado=%s", numero_chamado)
+        tracing.finish_trace(trace, output={"erro": "upload", "numero_chamado": numero_chamado})
         raise SafeQueryError(
             "imagem",
-            f"Veredito obtido e preservado (chamado {numero_chamado}), mas falhou ao salvar a imagem: {str(e)[:160]}",
+            f"Veredito obtido e preservado (chamado {numero_chamado}), mas falhou ao salvar a imagem. Tente reenviar a foto.",
         ) from e
 
     fotos_extra_doc = [
@@ -529,6 +676,19 @@ async def analisar(
         for item, (extra_uri, extra_url) in zip(fotos_extra_itens, extras_uploads, strict=True)
     ]
 
+    # Evidência medida da tese "um documento por chamado": tudo que a triagem
+    # produziu (metadados, vetor, identidade, veredito, referência da foto) vive num
+    # único documento, gravado com 1 insert + 1 update atômicos, sem coordenar
+    # banco relacional + vector DB + fila. Os números vão para a UI e para o doc.
+    persistencia = {
+        "documentos": 1,
+        "escritas": 2,
+        "colecoes": 1,
+        "documento_bytes": len(BSON.encode({k: v for k, v in doc.items() if k != "_id"})),
+        "embedding_floats": len(query_vector),
+        "insert_ms": round(insert_ms, 1),
+    }
+    t_update = time.perf_counter()
     # Reconciliação: agora que o upload terminou, promove o chamado pro estado
     # final normal (mesmo contrato de sempre — status "em_analise").
     await safe_query(
@@ -538,9 +698,14 @@ async def analisar(
                 "imagem_cliente_uri": uri,
                 "fotos_extra": fotos_extra_doc,
                 "status": "em_analise",
+                "persistencia": persistencia,
             }},
         )
     )
+    persistencia["update_ms"] = round((time.perf_counter() - t_update) * 1000, 1)
+
+    tracing.finish_trace(trace, output={"numero_chamado": numero_chamado, "classificacao": veredito["classificacao"],
+                                        "confianca": veredito["confianca"], "alerta_manipulacao": veredito["alerta_manipulacao"]})
 
     return clean({
         "numero_chamado": numero_chamado,
@@ -555,6 +720,7 @@ async def analisar(
         "funnel": funnel,
         "embedding_model": VOYAGE_MODEL,
         "embedding_dim": len(query_vector),
+        "persistencia": persistencia,
     })
 
 
@@ -708,6 +874,6 @@ async def chamados_stream():
                     yield f"data: {json.dumps(payload, default=str)}\n\n"
         except Exception as e:  # change streams exigem replica set (Atlas tem)
             logger.exception("change stream failed")
-            yield f"event: error\ndata: {json.dumps({'message': str(e)[:200]})}\n\n"
+            yield f"event: error\ndata: {json.dumps({'message': f'Change Stream indisponível ({type(e).__name__}). A fila segue pelo botão Atualizar.'})}\n\n"
 
     return StreamingResponse(_gen(), media_type="text/event-stream")

@@ -19,6 +19,7 @@ from pymongo.errors import OperationFailure
 from pymongo.operations import SearchIndexModel
 
 import config
+from demo_guard import exigir_permissao_de_escrita
 
 # $jsonSchema — governance nativa do MongoDB: mesmo sendo schemaless por
 # padrão, o Atlas valida forma/tipo de documento no servidor sem precisar de
@@ -119,7 +120,10 @@ def _regular_indexes(db):
     db[config.PEDIDOS_COLL].create_index([("numero_pedido", ASCENDING)], name="numero_pedido", unique=True)
     db[config.CATALOGO_COLL].create_index([("categoria", ASCENDING)], name="categoria", unique=True)
     db[config.CATALOGO_FOTOS_COLL].create_index([("sku", ASCENDING), ("foto_idx", ASCENDING)], name="sku_foto", unique=True)
-    print("✓ índices regulares criados (status_created, numero_chamado, idempotency_hash, numero_pedido, categoria, sku_foto)")
+    # Reservas de idempotência de POST /api/analisar (`_id` = hash é a trava atômica);
+    # o TTL limpa reservas de processos que morreram no meio.
+    db["idempotencia"].create_index([("expires_at", ASCENDING)], name="ttl_expires_at", expireAfterSeconds=0)
+    print("✓ índices regulares criados (status_created, numero_chamado, idempotency_hash, numero_pedido, categoria, sku_foto, idempotencia TTL)")
 
 
 def _search_index(col, name, definition, kind):
@@ -139,6 +143,7 @@ def _search_index(col, name, definition, kind):
 def main():
     if not config.MONGODB_URI:
         sys.exit("MONGODB_URI não definida — preencha o .env.")
+    exigir_permissao_de_escrita("setup_indexes.py")
     c = MongoClient(config.MONGODB_URI, serverSelectionTimeoutMS=10_000)
     c.admin.command("ping")
     db = c[config.DB_NAME]

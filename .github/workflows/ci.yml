@@ -22,6 +22,7 @@ jobs:
           cache-dependency-path: backend/requirements*.txt
       - run: pip install -r requirements-dev.txt
       - run: ruff check .
+      # pov-shared é privado: no CI os testes que dependem dele são pulados (skip explícito).
       - run: pytest -q
 
   frontend:

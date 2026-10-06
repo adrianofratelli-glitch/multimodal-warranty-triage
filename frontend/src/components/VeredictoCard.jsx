@@ -18,7 +18,7 @@ const grauConfianca = (pct) => {
 };
 
 /** Card de veredito: classificação + barra de confiança + aviso de revisão humana. */
-export default function VeredictoCard({ veredito }) {
+export default function VeredictoCard({ veredito, modoBusca }) {
   if (!veredito) return null;
   const r = ROTULO[veredito.classificacao] || { txt: veredito.classificacao, variant: 'darkgray' };
   const pct = Math.round((veredito.confianca ?? 0) * 100);
@@ -42,6 +42,16 @@ export default function VeredictoCard({ veredito }) {
 
       <p style={{ marginTop: 12, color: 'var(--text-sec)' }}>{veredito.racional}</p>
 
+      {veredito.alerta_manipulacao && (
+        <div className="alerta-manipulacao" role="alert">
+          <strong>⚠ Possível tentativa de manipulação</strong> — confiança limitada a 50%.
+          Revise o relato e as fotos antes de decidir.
+          {veredito.alertas?.length > 0 && (
+            <ul>{veredito.alertas.map((a, i) => <li key={i}>{a}</li>)}</ul>
+          )}
+        </div>
+      )}
+
       {veredito.sinais_observados?.length > 0 && (
         <div className="row" style={{ marginTop: 10 }}>
           {veredito.sinais_observados.map((s, i) => (
@@ -56,7 +66,11 @@ export default function VeredictoCard({ veredito }) {
 
       {veredito._meta && (
         <div className="dim mono" style={{ marginTop: 8, fontSize: 11 }}>
-          {veredito._meta.precedentes_usados} precedentes recuperados via $rankFusion ·
+          {veredito._meta.mode === 'manual_review_fallback'
+            ? 'triagem automática indisponível · caso preservado para revisão manual · '
+            : ''}
+          {veredito._meta.precedentes_usados} precedentes recuperados
+          {modoBusca ? ` via ${modoBusca === 'hybrid' ? '$rankFusion' : '$vectorSearch'}` : ''} ·
           {' '}{veredito._meta.latency_ms}ms de triagem
         </div>
       )}

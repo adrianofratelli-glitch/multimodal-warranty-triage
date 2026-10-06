@@ -17,6 +17,10 @@ WORKDIR /app
 
 COPY backend/requirements.txt ./backend/requirements.txt
 RUN pip install --no-cache-dir -r backend/requirements.txt
+# pov-shared (grove_client + guardrails) vem de um contexto nomeado:
+#   docker build --build-context shared=../_shared -t warranty-triage .
+COPY --from=shared . /opt/pov-shared
+RUN pip install --no-cache-dir "/opt/pov-shared[llm]"
 
 COPY backend/ ./backend/
 COPY seed_images/ ./seed_images/

@@ -571,6 +571,28 @@ footer.app-footer p {
   font-weight: 600;
 }
 
+/* sinal de instrução embutida no relato ou na foto: borda + ícone + texto, não só cor */
+.alerta-manipulacao {
+  margin-top: 12px;
+  padding: 0.6rem 0.85rem;
+  border-radius: 10px;
+  border: 2px solid var(--danger, #ff6960);
+  background: rgba(255, 105, 96, 0.1);
+  color: var(--text-pri);
+  font-size: 0.85rem;
+}
+.alerta-manipulacao ul { margin: 6px 0 0; padding-left: 1.1rem; color: var(--text-sec); }
+
+/* evidência medida da tese: um documento por chamado */
+.persistencia {
+  margin-top: 10px;
+  padding: 0.55rem 0.8rem;
+  border-left: 3px solid var(--accent);
+  background: rgba(0, 237, 100, 0.06);
+  border-radius: 6px;
+  overflow-wrap: anywhere;
+}
+
 /* item de precedente recuperado */
 .prec-item {
   padding: 12px 0;

@@ -1,4 +1,5 @@
 import asyncio
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
 from llm import _normalizar_veredito, analisar_veredito
@@ -22,7 +23,8 @@ def test_malformed_tool_output_fails_safe_to_inconclusive():
 
 
 def test_provider_failure_preserves_case_for_human_review():
-    with patch("llm.client.messages.create", new=AsyncMock(side_effect=TimeoutError("offline"))):
+    fake = SimpleNamespace(messages=SimpleNamespace(create=AsyncMock(side_effect=TimeoutError("offline"))))
+    with patch("llm._get_client", return_value=fake):
         result = asyncio.run(
             analisar_veredito(b"jpeg-bytes", "image/jpeg", "produto com avaria", [])
         )

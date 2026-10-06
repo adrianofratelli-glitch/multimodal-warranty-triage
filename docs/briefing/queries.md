@@ -6,6 +6,8 @@
 
 ## Coleções
 
+> Além das quatro abaixo, `idempotencia` guarda só reservas efêmeras de envio (query #6b, TTL).
+
 | Coleção | Conteúdo | Validador `$jsonSchema` |
 |---|---|---|
 | `pedidos` | pedidos e itens (sku, categoria) | sim |
@@ -19,7 +21,7 @@ Nomes reais das coleções/índices vêm do `.env` via `backend/config.py` — o
 
 ## Queries — `backend/main.py`
 
-### 1. Contagem por status — `_counts_por_status` (`main.py:142-154`)
+### 1. Contagem por status — `_counts_por_status` (`main.py`)
 
 **O que faz:** um único `$group` substitui três `count_documents` separados (total / resolvido / em_analise).
 
@@ -29,7 +31,7 @@ col.aggregate([{"$group": {"_id": "$status", "n": {"$sum": 1}}}], maxTimeMS=conf
 
 **Por que existe:** usado em `/api/health`, que o frontend faz poll a cada 10s (`App.jsx`). Três `count_documents` seriam três scans completos por poll — desperdício visível na fatura do Atlas. Aproveita o índice `status_created`.
 
-### 2. Listar pedidos — `GET /api/pedidos` (`main.py:157-161`)
+### 2. Listar pedidos — `GET /api/pedidos` (`main.py`)
 
 ```python
 pedidos().find({}, {"_id": 0}, max_time_ms=config.MAX_TIME_MS).sort("numero_pedido", 1)
@@ -37,7 +39,7 @@ pedidos().find({}, {"_id": 0}, max_time_ms=config.MAX_TIME_MS).sort("numero_pedi
 
 **O que faz:** popula o seletor de pedido no Portal. Projeção exclui `_id` (não usado no frontend).
 
-### 3. Lookup de pedido — `POST /api/lookup` (`main.py:168-180`)
+### 3. Lookup de pedido — `POST /api/lookup` (`main.py`)
 
 ```python
 pedidos().find_one({"numero_pedido": numero}, {"_id": 0}, max_time_ms=config.MAX_TIME_MS)
@@ -47,7 +49,7 @@ pedidos().distinct("numero_pedido", maxTimeMS=config.MAX_TIME_MS)
 
 **Por que existe:** se o pedido não existe, a mensagem de erro devolve a lista dos pedidos que *existem* (via `distinct`) — numa demo ao vivo, um número digitado errado já resolve sozinho em vez de virar tentativa e erro na frente do cliente. Usa o índice único `numero_pedido`.
 
-### 4. Checklist por categoria — `GET /api/checklist/{categoria}` e `_tabela_catalogo` (`main.py:183-201`)
+### 4. Checklist por categoria — `GET /api/checklist/{categoria}` e `_tabela_catalogo` (`main.py`)
 
 ```python
 catalogo().find_one({"categoria": categoria}, {"_id": 0}, max_time_ms=config.MAX_TIME_MS)
@@ -55,7 +57,7 @@ catalogo().find_one({"categoria": categoria}, {"_id": 0}, max_time_ms=config.MAX
 
 **Por que existe:** o checklist é lido do banco, não de um dict hardcoded — cada categoria de produto tem seu próprio conjunto de defeitos possíveis. Índice único `categoria`.
 
-### 5. Resolver produto do pedido — `_resolver_produto` (`main.py:191-196`)
+### 5. Resolver produto do pedido — `_resolver_produto` (`main.py`)
 
 ```python
 pedidos().find_one({"numero_pedido": numero_pedido.strip().upper()}, max_time_ms=config.MAX_TIME_MS)
@@ -63,7 +65,7 @@ pedidos().find_one({"numero_pedido": numero_pedido.strip().upper()}, max_time_ms
 
 **O que faz:** valida que o SKU informado pertence de fato ao pedido informado (evita SKU forjado no request).
 
-### 6. Busca do chamado idempotente — `_buscar_chamado_idempotente` (`main.py:309-318`)
+### 6. Busca do chamado idempotente — `_buscar_chamado_idempotente` (`main.py`)
 
 ```python
 chamados().find_one(
@@ -76,7 +78,19 @@ chamados().find_one(
 
 **Por que existe:** antes de pagar LLM+embedding de novo, checa se um chamado com o mesmo hash de entrada (foto+pedido+sku+checklist) já foi criado nos últimos 60s — cobre duplo-clique e retry de rede do frontend. Usa o índice composto `idempotency_hash + created_at`.
 
-### 7. Insert do chamado, com retry em colisão — `_inserir_chamado_com_retry` (`main.py:288-306`)
+### 6b. Reserva atômica do envio — `_reservar_idempotencia` / `_aguardar_chamado_concorrente` (`main.py`)
+
+```python
+db()["idempotencia"].insert_one({"_id": idempotency_hash, "created_at": agora,
+                                 "expires_at": agora + timedelta(seconds=180), "request_id": rid})
+# DuplicateKeyError -> outro envio idêntico está processando; só retoma reserva vencida:
+db()["idempotencia"].update_one({"_id": idempotency_hash, "created_at": {"$lt": vencida}},
+                                {"$set": {"created_at": agora, "expires_at": ..., "request_id": rid}})
+```
+
+**Por que existe:** o `find_one` da query #6 sozinho tem corrida: dois envios simultâneos (duplo clique, duas abas, retry) passavam juntos e os dois pagavam embedding + LLM. O `_id` único é a trava atômica; quem perde espera o chamado aparecer (polling de 0,5 s até `IDEMPOTENCY_WAIT_SECONDS`) e devolve o mesmo `numero_chamado`. A reserva é apagada ao fim (`delete_one` por `_id` + `request_id`) e o índice TTL em `expires_at` limpa a de um processo que morreu no meio. Medido: 5 envios paralelos idênticos → 1 processamento, 4 replays (`tests/adversarial/test_api_adversarial.py`); 3 envios paralelos reais no Atlas → 1 chamado (`test_live_adversarial.py`).
+
+### 7. Insert do chamado, com retry em colisão — `_inserir_chamado_com_retry` (`main.py`)
 
 ```python
 chamados().insert_one(doc)
@@ -84,7 +98,7 @@ chamados().insert_one(doc)
 
 **Por que existe:** `numero_chamado` (6 hex chars) tem chance baixa mas não nula de colidir. Em `DuplicateKeyError`, gera outro número e tenta de novo (até 3x) sem reprocessar o veredito já pago e em memória.
 
-### 8. Fila de revisão paginada por cursor — `GET /api/chamados/pendentes` (`main.py:561-611`)
+### 8. Fila de revisão paginada por cursor — `GET /api/chamados/pendentes` (`main.py`)
 
 ```python
 query = {"status": "em_analise"}
@@ -98,7 +112,7 @@ chamados().find(query, {"embedding": 0}, max_time_ms=config.MAX_TIME_MS).sort([(
 
 **Por que existe:** paginação real por `(created_at, _id)` — chave composta estável mesmo com `created_at` empatado. Substitui um `to_list(length=50)` sem `skip`/cursor que escondia permanentemente os casos mais antigos acima de 50 pendentes (achado de auditoria). Usa o índice `status_created`.
 
-### 9. Revisão humana — `POST /api/revisar` (`main.py:620-648`)
+### 9. Revisão humana — `POST /api/revisar` (`main.py`)
 
 ```python
 chamados().update_one(
@@ -115,7 +129,7 @@ chamados().update_one(
 
 **Por que existe:** é a transição que torna um chamado elegível como precedente futuro. O `update_one` é **condicionado a `status: "em_analise"`** de propósito — se dois analistas revisarem o mesmo caso quase ao mesmo tempo, o segundo recebe 409 em vez de sobrescrever a decisão do primeiro em silêncio (checa `matched_count == 0` e distingue 404 de 409 depois).
 
-### 10. Analytics — `GET /api/analytics` (`main.py:651-674`)
+### 10. Analytics — `GET /api/analytics` (`main.py`)
 
 ```python
 col.aggregate([
@@ -139,7 +153,7 @@ col.aggregate([
 
 **Por que existe:** alimenta Atlas Charts. Depende do `_meta` (modelo, latência, tokens) gravado em cada veredito por `llm.py` — se isso não for gravado na análise, a página de analytics vira estimativa.
 
-### 11. Change Stream da fila ao vivo — `GET /api/chamados/stream` (`main.py:677-713`)
+### 11. Change Stream da fila ao vivo — `GET /api/chamados/stream` (`main.py`)
 
 ```python
 pipeline = [
@@ -267,6 +281,7 @@ pipeline = [
 | `numero_pedido` | `pedidos` | `numero_pedido` asc | **único** — lookup de pedido (query #3) |
 | `categoria` | `catalogo` | `categoria` asc | **único** — um checklist por categoria (query #4) |
 | `sku_foto` | `catalogo_fotos` | `sku` asc, `foto_idx` asc | **único** — evita foto de referência duplicada para o mesmo SKU |
+| `ttl_expires_at` | `idempotencia` | `expires_at` (TTL, `expireAfterSeconds=0`) | Limpa reservas de envio órfãs (query #6b); o `_id` (hash) é a trava |
 
 ### Vetoriais (Atlas Vector Search)
 

@@ -1,12 +1,16 @@
 fastapi>=0.120,<0.140
 uvicorn[standard]==0.34.*
 motor==3.7.1
-pymongo==4.17.0
-anthropic>=0.109
+pymongo==4.18.2
+anthropic>=0.116,<1
 python-dotenv==1.*
 voyageai>=0.3
 Pillow>=10
 python-multipart>=0.0.9
+# Langfuse v2 (fail-open). O SDK v3+ mudou a API de trace e quebra em silêncio.
+langfuse>=2,<3
+# LLM: pov-shared (grove_client) não está no PyPI; instale com
+#   uv pip install -e "../../_shared[llm]"   (a partir de backend/)
 
 # Security floors for existing transitive dependencies; no core replacement.
 aiohttp>=3.14.3,<4

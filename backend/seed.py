@@ -25,6 +25,7 @@ from pymongo import MongoClient
 
 import config
 from defeitos_catalog import CATALOGO_DEFEITOS, compor_frase, derivar_tipo_defeito
+from demo_guard import REPO_MEDIA, exigir_permissao_de_escrita
 from seed_data import CHAMADOS_SEED
 from storage import upload_imagem
 from voyage import embed_multimodal
@@ -38,8 +39,10 @@ def montar_documento(item: dict) -> dict:
     arquivo = item["imagem_arquivo"]
     caminho = SEED_IMAGES / arquivo
     if not caminho.exists():
+        caminho = REPO_MEDIA / "seed" / item["numero_chamado"] / arquivo
+    if not caminho.exists():
         sys.exit(
-            f"Imagem ausente: {caminho}.\n"
+            f"Imagem ausente: {SEED_IMAGES / arquivo} (nem a cópia em {caminho}).\n"
             f"Este repo não vem com fotos de exemplo — aponte SEED_IMAGES_DIR (.env) "
             f"para uma pasta com suas próprias fotos, ou rode "
             f"'python generate_placeholders.py' para gerar placeholders sintéticos."
@@ -84,6 +87,7 @@ def montar_documento(item: dict) -> dict:
 def main():
     if not config.MONGODB_URI:
         sys.exit("MONGODB_URI não definida — preencha o .env.")
+    exigir_permissao_de_escrita("seed.py")
     client = MongoClient(config.MONGODB_URI, serverSelectionTimeoutMS=10_000)
     client.admin.command("ping")
     col = client[config.DB_NAME][config.CHAMADOS_COLL]
@@ -96,7 +100,7 @@ def main():
     print(f"\nSeed concluído em {config.DB_NAME}.{config.CHAMADOS_COLL}:")
     print(f"  total:     {col.count_documents({})}")
     print(f"  resolvido: {col.count_documents({'status': 'resolvido'})}")
-    print("\nAgora rode:  python setup_indexes.py")
+    print("\nAgora rode:  python setup_indexes.py  (ou use scripts/reset_demo.py, que faz tudo)")
 
 
 if __name__ == "__main__":

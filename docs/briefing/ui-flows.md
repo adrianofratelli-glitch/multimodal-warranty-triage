@@ -41,7 +41,8 @@ Um dropdown de "Cenário" carrega de uma vez pedido + produto + checklist + desc
 |---|---|---|
 | `PipelineSteps` | `frontend/src/components/PipelineSteps.jsx` | as 7 etapas do `POST /api/analisar` em `pending → running → done`, cada uma com uma linha explicando o que acontece no MongoDB naquele passo (texto fixo em `STEP_DETAILS`, `Portal.jsx:19-27`) |
 | `IdentidadeCard` | `frontend/src/components/IdentidadeCard.jsx` | resultado de `verificar_identidade` — % de similaridade, badge verde/vermelho conforme `abaixo_threshold`, e dois textos de aviso **diferentes** conforme o modo de falha (SKU disputado vs. produto desconhecido) |
-| `VeredictoCard` | `frontend/src/components/VeredictoCard.jsx` | classificação (badge colorido por tipo), barra de confiança com 3 faixas (baixa/moderada/alta), racional em texto, sinais observados, aviso fixo de revisão humana, e metadados (`_meta`: precedentes usados, latência) |
+| `VeredictoCard` | `frontend/src/components/VeredictoCard.jsx` | classificação (badge colorido por tipo), barra de confiança com 3 faixas (baixa/moderada/alta), racional em texto, sinais observados, aviso fixo de revisão humana, metadados (`_meta`: precedentes usados, `$vectorSearch` ou `$rankFusion` conforme o modo real, latência; aviso quando o veredito é o fallback de revisão manual) e, quando `alerta_manipulacao`, um bloco `role="alert"` com borda, ícone e texto ("Possível tentativa de manipulação — confiança limitada a 50%") listando os motivos |
+| Bloco "Um documento por chamado (medido agora)" | `frontend/src/tabs/Portal.jsx` | `persistencia` devolvida pelo backend: documentos, escritas, coleções, KB do documento, ms do insert/update e da busca vetorial + identidade daquela análise. Em envio repetido, avisa que o chamado existente foi devolvido sem nova cobrança |
 | `JsonViewer` | `frontend/src/components/JsonViewer.jsx` | documento Mongo cru — usado tanto nos precedentes quanto no chamado completo na Revisão |
 | `QueryDetails` | `frontend/src/components/QueryDetails.jsx` | expõe o pipeline de agregação real que rodou (via `funnel.query_details`/`identidade.query_details`), com o `queryVector` substituído por `"<N floats omitidos>"` (`rag.py:_display_pipeline`) — nunca expõe o vetor cru na tela |
 
@@ -57,7 +58,7 @@ Fila de chamados `status: em_analise` aguardando confirmação humana.
 - **"Carregar mais"** — passa `next_cursor` da página anterior; aparece só quando `has_more` é true.
 - **Change Stream ao vivo** — abre um `EventSource('/api/chamados/stream')` só quando a aba está `active` e o browser está visível; cada evento recarrega a fila do zero via `GET /api/chamados/pendentes` (o SSE é gatilho, não payload). Badge "● live" reflete o estado real da conexão (`es.onopen`/`es.onerror`), não fica verde por otimismo.
 - **Selecionar um chamado** — mostra `VeredictoCard`, sugestão de resolução por classificação (`SUGESTAO`, `Revisao.jsx:11-16` — o humano confirma/edita, nunca é aplicada automaticamente), campo de texto livre, e o documento Mongo cru via `JsonViewer`.
-- **Confirmar** — `POST /api/revisar`; sucesso remove o item da lista local e mostra banner de sucesso mencionando explicitamente "adicionado à base de precedentes" — reforça o flywheel na tela.
+- **Confirmar** — `POST /api/revisar`; sucesso remove o item da lista local, decrementa o contador "Mostrando X de Y" e mostra banner de sucesso mencionando explicitamente "adicionado à base de precedentes" — reforça o flywheel na tela. Dois revisores no mesmo chamado: o `update_one` filtra `status: em_analise`, então só um vence; o outro recebe 409 "Chamado já foi revisado" (medido: 4 revisões paralelas → 1×200, 3×409).
 
 ## Regra de fronteira entre UI e backend
 
