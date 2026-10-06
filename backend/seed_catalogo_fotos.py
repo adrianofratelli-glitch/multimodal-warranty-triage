@@ -23,6 +23,7 @@ from pymongo import MongoClient
 
 import config
 from catalogo_produtos_data import CATALOGO_PRODUTOS
+from demo_guard import REPO_MEDIA, exigir_permissao_de_escrita
 from storage import upload_imagem
 from voyage import embed_multimodal
 
@@ -35,8 +36,10 @@ def montar_documento(produto: dict, foto_idx: int) -> dict:
     arquivo = f"{foto_idx}.jpg"
     caminho = SEED_IMAGES / sku / arquivo
     if not caminho.exists():
+        caminho = REPO_MEDIA / "catalogo" / sku / arquivo
+    if not caminho.exists():
         sys.exit(
-            f"Imagem ausente: {caminho}.\n"
+            f"Imagem ausente: {SEED_IMAGES / sku / arquivo} (nem a cópia em {caminho}).\n"
             f"Rode generate_catalogo_placeholders.py para gerar placeholders, "
             f"ou coloque as fotos reais nesse caminho."
         )
@@ -62,6 +65,7 @@ def montar_documento(produto: dict, foto_idx: int) -> dict:
 def main():
     if not config.MONGODB_URI:
         sys.exit("MONGODB_URI não definida — preencha o .env.")
+    exigir_permissao_de_escrita("seed_catalogo_fotos.py")
     client = MongoClient(config.MONGODB_URI, serverSelectionTimeoutMS=10_000)
     client.admin.command("ping")
     col = client[config.DB_NAME][config.CATALOGO_FOTOS_COLL]
@@ -77,7 +81,7 @@ def main():
     print(f"\nSeed concluído em {config.DB_NAME}.{config.CATALOGO_FOTOS_COLL}:")
     print(f"  total fotos: {col.count_documents({})}")
     print(f"  skus:        {len(col.distinct('sku'))}")
-    print("\nAgora rode:  python setup_indexes.py")
+    print("\nAgora rode:  python setup_indexes.py  (ou use scripts/reset_demo.py, que faz tudo)")
 
 
 if __name__ == "__main__":

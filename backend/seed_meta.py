@@ -14,12 +14,14 @@ from pymongo import MongoClient
 
 import config
 from defeitos_catalog import CATALOGO_DEFEITOS
+from demo_guard import exigir_permissao_de_escrita
 from pedidos_data import PEDIDOS_SEED
 
 
 def main():
     if not config.MONGODB_URI:
         sys.exit("MONGODB_URI não definida — preencha o .env.")
+    exigir_permissao_de_escrita("seed_meta.py")
     c = MongoClient(config.MONGODB_URI, serverSelectionTimeoutMS=10_000)
     c.admin.command("ping")
     db = c[config.DB_NAME]
