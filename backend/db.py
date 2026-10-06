@@ -14,6 +14,7 @@ from pymongo.errors import (
     ExecutionTimeout,
     NetworkTimeout,
     OperationFailure,
+    PyMongoError,
     ServerSelectionTimeoutError,
     WTimeoutError,
 )
@@ -39,6 +40,11 @@ def get_client() -> AsyncIOMotorClient:
             config.MONGODB_URI,
             serverSelectionTimeoutMS=MAX_TIME_MS,
             connectTimeoutMS=MAX_TIME_MS,
+            # Sem socketTimeoutMS, uma escrita (insert/update não levam maxTimeMS)
+            # presa numa conexão meio-morta espera o TCP do SO por minutos.
+            socketTimeoutMS=int(MAX_TIME_MS * 2),
+            retryWrites=True,
+            retryReads=True,
             appname="mm-analise-garantia-poc",
         )
     return _client
@@ -114,3 +120,8 @@ async def safe_query(awaitable):
     except ConnectionFailure as e:
         logger.exception("connection failure")
         raise SafeQueryError("conexao", "Conexão com o cluster perdida. Tente novamente em alguns segundos.") from e
+    except PyMongoError as e:
+        # Qualquer outra falha do driver (ex.: WriteError de $jsonSchema) vira erro
+        # legível em vez de 500 com stack trace.
+        logger.exception("pymongo error")
+        raise SafeQueryError("operacao", f"Falha no MongoDB ({type(e).__name__}). Tente novamente.") from e

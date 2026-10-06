@@ -20,15 +20,20 @@ _client: voyageai.Client | None = None
 
 
 def get_client() -> voyageai.Client:
-    """Client com timeout explícito — sem isso uma degradação lenta (não uma
-    falha limpa) do provedor Voyage pode travar a thread do run_in_threadpool
-    por tempo indefinido. Mesmo padrão do client Anthropic em llm.py."""
+    """Client com timeout e retry explícitos (resiliência por padrão).
+
+    Sem timeout, uma degradação lenta da Voyage trava a thread do
+    run_in_threadpool indefinidamente. O SDK repete 429/503/timeout com backoff
+    exponencial e jitter (tenacity); atenção: `max_retries` do SDK é o número
+    TOTAL de tentativas (stop_after_attempt), por isso o padrão é 3.
+    VOYAGE_MAX_RETRIES=1 desliga o retry.
+    """
     global _client
     if _client is None:
         _client = voyageai.Client(
             # lê VOYAGE_API_KEY do ambiente (config carregou o .env)
-            timeout=float(os.getenv("VOYAGE_TIMEOUT_SECONDS", "45")),
-            max_retries=int(os.getenv("VOYAGE_MAX_RETRIES", "2")),
+            timeout=float(os.getenv("VOYAGE_TIMEOUT_SECONDS", "30")),
+            max_retries=int(os.getenv("VOYAGE_MAX_RETRIES", "3")),
         )
     return _client
 
