@@ -426,6 +426,24 @@ export default function Portal({ state, setState }) {
                   embedding: {resultado.embedding_model} ({resultado.embedding_dim}d)<br />
                   frase: {resultado.frase_analise}
                 </div>
+                {resultado.persistencia && (
+                  <div className="persistencia" aria-label="Persistência medida do chamado">
+                    <div className="card-title" style={{ fontSize: 13 }}>Um documento por chamado (medido agora)</div>
+                    <div className="dim mono" style={{ fontSize: 12, marginTop: 4 }}>
+                      {resultado.persistencia.documentos} documento · {resultado.persistencia.escritas} escritas ·{' '}
+                      {resultado.persistencia.colecoes} coleção · {(resultado.persistencia.documento_bytes / 1024).toFixed(1)} KB
+                      (metadados + vetor de {resultado.persistencia.embedding_floats} floats + identidade + veredito)<br />
+                      insert {resultado.persistencia.insert_ms} ms
+                      {resultado.persistencia.update_ms != null ? ` · update ${resultado.persistencia.update_ms} ms` : ''}
+                      {resultado.funnel?.latency_ms != null ? ` · busca vetorial + identidade ${resultado.funnel.latency_ms} ms` : ''}
+                    </div>
+                  </div>
+                )}
+                {resultado.idempotent_replay && (
+                  <div className="dim" style={{ fontSize: 12, marginTop: 6 }}>
+                    Envio repetido detectado: devolvido o chamado já criado, sem nova cobrança de embedding nem de LLM.
+                  </div>
+                )}
                 <QueryDetails
                   operation={resultado.funnel?.query_details?.operation}
                   namespace="chamados"
@@ -443,7 +461,7 @@ export default function Portal({ state, setState }) {
           </div>
           <div className="stack">
             {resultado?.identidade && <IdentidadeCard identidade={resultado.identidade} />}
-            {resultado?.veredito && <VeredictoCard veredito={resultado.veredito} />}
+            {resultado?.veredito && <VeredictoCard veredito={resultado.veredito} modoBusca={resultado.funnel?.modo} />}
             {resultado?.imagem_url && (
               <div className="card"><div className="card-title" style={{ marginBottom: 8 }}>Foto do cliente</div>
                 <img src={resultado.imagem_url} alt="defeito" className="foto-full" /></div>

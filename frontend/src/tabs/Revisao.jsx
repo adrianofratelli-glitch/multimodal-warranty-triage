@@ -119,6 +119,7 @@ export default function Revisao({ state, setState, active = true }) {
         ...s,
         selecionado: null,
         pendentes: s.pendentes.filter((p) => p.numero_chamado !== doc.numero_chamado),
+        totalPendentes: typeof s.totalPendentes === 'number' ? Math.max(0, s.totalPendentes - 1) : s.totalPendentes,
       }));
       setResolucao('');
     } catch (e) {
