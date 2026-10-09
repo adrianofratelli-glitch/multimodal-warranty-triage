@@ -1,14 +1,15 @@
 #!/usr/bin/env python3
 """Mede, no cluster real, o custo de persistir/ler um chamado como UM documento
-versus o mesmo chamado espalhado em três lugares (metadados, vetor, veredito).
+versus o mesmo chamado modelado em três coleções (metadados, vetor, veredito).
 
     MONGODB_DB=<banco>_test backend/.venv/bin/python scripts/bench_documento_unico.py [N]
 
-O cenário "separado" usa três coleções no MESMO cluster, então é um limite
-INFERIOR para Postgres + vector DB + storage de veredito: na vida real cada
-parte é outro sistema, outra rede, outro driver e outro modelo de consistência.
-Mesmo assim ele precisa de 3 round trips por escrita e por leitura, e de uma
-transação multi-documento para não deixar o chamado pela metade.
+É uma comparação de MODELAGEM dentro do MongoDB, no mesmo cluster e com o mesmo
+driver: quantos round trips cada desenho exige e quanto custa tornar o desenho
+em três coleções atômico (transação multi-documento). Não mede nenhum outro
+produto e não serve de piso nem de teto para outra arquitetura: um banco
+relacional com extensão vetorial, por exemplo, também guarda vetor, metadados e
+veredito juntos. Os números valem para este esquema, este cluster e esta rede.
 
 Grava só em coleções `bench_*` do banco *_test e as remove no fim.
 """
@@ -55,6 +56,9 @@ def _stats(xs: list[float]) -> str:
 
 
 def main() -> None:
+    if len(sys.argv) > 1 and sys.argv[1] in ("-h", "--help"):
+        print(__doc__)
+        return
     n = int(sys.argv[1]) if len(sys.argv) > 1 else 30
     if not config.DB_NAME.endswith("_test"):
         sys.exit("bench grava dados: rode com MONGODB_DB=<banco>_test")

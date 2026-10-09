@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.1.1 (2026-10-09)
+
+- Security: with `pov-shared` >= 0.2.0 a report with more than 8 distinct clauses raised `ClauseBudgetExceeded` and was treated as "no signal" (fail-open), so an instruction hidden after many sentences was not flagged. Every clause is now scored (budget 128) and a report above the budget is flagged as suspicious. Regression tests in `tests/adversarial/test_llm_adversarial.py`.
+- Docs: `scripts/bench_documento_unico.py` is described as a data-modeling comparison inside MongoDB (one document vs three collections on the same cluster), not as a floor for other databases; numbers re-measured on 2026-10-09. The script accepts `--help`.
+- `pov-shared` 0.2.1 (editable).
+
 ## 1.1.0 (2026-10-06)
 
 - LLM through the Grove gateway with `pov-shared` (`AsyncGroveClient`): retry with jitter, circuit breaker, total deadline; manual-review fallback.
