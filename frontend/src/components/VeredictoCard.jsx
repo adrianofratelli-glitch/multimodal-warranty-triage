@@ -53,11 +53,11 @@ export default function VeredictoCard({ veredito, modoBusca }) {
       )}
 
       {veredito.sinais_observados?.length > 0 && (
-        <div className="row" style={{ marginTop: 10 }}>
+        <ul className="sinais" aria-label="Sinais observados na foto">
           {veredito.sinais_observados.map((s, i) => (
-            <Badge key={i} variant="darkgray">{s}</Badge>
+            <li key={i}>{s}</li>
           ))}
-        </div>
+        </ul>
       )}
 
       <div className="aviso-humano">
@@ -70,7 +70,7 @@ export default function VeredictoCard({ veredito, modoBusca }) {
             ? 'triagem automática indisponível · caso preservado para revisão manual · '
             : ''}
           {veredito._meta.precedentes_usados} precedentes recuperados
-          {modoBusca ? ` via ${modoBusca === 'hybrid' ? '$rankFusion' : '$vectorSearch'}` : ''} ·
+          {modoBusca === 'idempotent_replay' ? ' no envio original' : modoBusca ? ` via ${modoBusca === 'hybrid' ? '$rankFusion' : '$vectorSearch'}` : ''} ·
           {' '}{veredito._meta.latency_ms}ms de triagem
         </div>
       )}

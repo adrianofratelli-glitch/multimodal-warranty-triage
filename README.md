@@ -115,7 +115,23 @@ Docker: `docker build --build-context shared=../_shared -t warranty-triage . && 
 
 ## Why one document per case (measured)
 
-Metadata, the 1024-float vector, the identity check, the verdict and the photo reference live in a single `chamados` document, written with one insert plus one update. The portal shows the document size and the real insert/update time of every analysis. `scripts/bench_documento_unico.py` (run against a `*_test` database) compares it with the same case split across three collections on the same cluster, a lower bound for Postgres + a vector DB + a verdict store. Measured on 2026-10-06, N=30, demo cluster from a laptop: write p50 379 ms (1 op) vs 799 ms (3 ops, not atomic) vs 1005 ms (3 ops in a transaction); read p50 350 ms vs 664 ms.
+Metadata, the 1024-float vector, the identity check, the verdict and the photo reference live in a single `chamados` document, written with one insert plus one update. The portal shows the document size and the real insert/update time of every analysis.
+
+`scripts/bench_documento_unico.py` is a data-modeling comparison inside MongoDB, not a competitive benchmark: it writes and reads the same case as one document and as three collections (metadata, vector, verdict) on the same cluster, with the same driver, to show the round-trip cost of splitting the case and the extra cost of making the split atomic with a multi-document transaction. It does not measure any other database and is not a floor or ceiling for other architectures.
+
+```bash
+MONGODB_DB=<db>_test backend/.venv/bin/python scripts/bench_documento_unico.py 30
+```
+
+Measured on 2026-10-09, N=30, demo cluster from a laptop (results depend on schema, cluster and network):
+
+| Model | Operation | p50 | p95 |
+|---|---|---|---|
+| One document | write, 1 op | 386.8 ms | 391.6 ms |
+| One document | read, 1 op | 379.2 ms | 385.6 ms |
+| Three collections | write, 3 ops (not atomic) | 854.6 ms | 893.7 ms |
+| Three collections | write, 3 ops in a transaction | 1075.1 ms | 1097.6 ms |
+| Three collections | read, 3 ops | 701.8 ms | 733.3 ms |
 
 ## Endpoints
 

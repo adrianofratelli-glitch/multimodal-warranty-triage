@@ -24,6 +24,12 @@ logger = logging.getLogger("mm_garantia.guardrails")
 # conta. score_by_clause não muda o limiar, só impede que ele seja diluído.
 LIMIAR_INSTRUCAO = 0.5
 
+# A heurística é offline (regex), então pontuar cada cláusula é barato. O teto só
+# limita CPU num relato de MAX_DESCRIPTION_CHARS; passar dele é tratado como
+# suspeito (fail-closed), nunca como "sem sinal": desde pov-shared 0.2.0 as
+# cláusulas não são mais reagrupadas e o excesso levanta ClauseBudgetExceeded.
+MAX_CLAUSULAS = 128
+
 
 def mascarar_pii(texto: str) -> str:
     if not texto or guardrails is None:
@@ -44,9 +50,18 @@ def avaliar_instrucao(texto: str) -> dict:
     """Retorna {suspeito, motivo, clausula} sem lançar exceção."""
     if not texto or not texto.strip() or guardrails is None:
         return {"suspeito": False, "motivo": None, "por_clausula": False, "clausula": None}
+    budget_exc = getattr(guardrails, "ClauseBudgetExceeded", None)
     try:
-        res = guardrails.score_by_clause(texto, _score, max_clauses=8, max_len=300)
-    except Exception:  # noqa: BLE001
+        res = guardrails.score_by_clause(texto, _score, max_clauses=MAX_CLAUSULAS, max_len=300)
+    except Exception as e:  # noqa: BLE001
+        if budget_exc is not None and isinstance(e, budget_exc):
+            logger.warning("relato com %s cláusulas acima do teto; marcado como suspeito", getattr(e, "count", "?"))
+            return {
+                "suspeito": True,
+                "motivo": f"relato fragmentado demais para avaliação por cláusula ({getattr(e, 'count', '?')} > {MAX_CLAUSULAS})",
+                "por_clausula": True,
+                "clausula": None,
+            }
         logger.warning("score_by_clause falhou; seguindo sem sinal de injeção", exc_info=True)
         return {"suspeito": False, "motivo": None, "por_clausula": False, "clausula": None}
     suspeito = res.score >= LIMIAR_INSTRUCAO

@@ -678,8 +678,8 @@ async def _processar_analise(
 
     # Evidência medida da tese "um documento por chamado": tudo que a triagem
     # produziu (metadados, vetor, identidade, veredito, referência da foto) vive num
-    # único documento, gravado com 1 insert + 1 update atômicos, sem coordenar
-    # banco relacional + vector DB + fila. Os números vão para a UI e para o doc.
+    # único documento, gravado com 1 insert + 1 update atômicos (cada um), sem
+    # transação entre coleções. Os números vão para a UI e para o doc.
     persistencia = {
         "documentos": 1,
         "escritas": 2,
