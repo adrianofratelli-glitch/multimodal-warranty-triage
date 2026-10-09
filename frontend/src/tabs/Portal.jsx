@@ -483,7 +483,17 @@ export default function Portal({ state, setState }) {
         </div>
       )}
 
-      {resultado?.precedentes && (
+      {resultado?.idempotent_replay && !resultado.precedentes?.length && (
+        <div className="card">
+          <div className="card-header">
+            <span className="card-title">Precedentes recuperados</span>
+          </div>
+          <p className="dim" style={{ margin: 0 }}>
+            Envio repetido: a busca não foi refeita. O veredito acima usou os precedentes recuperados no envio original.
+          </p>
+        </div>
+      )}
+      {resultado?.precedentes?.length > 0 && (
         <div className="card">
           <div className="card-header">
             <span className="card-title">
@@ -524,7 +534,15 @@ export default function Portal({ state, setState }) {
                     <Badge variant="green">score {Number(p.score).toFixed(3)}</Badge>
                   </div>
                 </div>
-                <JsonViewer doc={p} />
+                <p className="prec-resumo">
+                  <span className="dim">Relato:</span> {p.descricao_cliente || '—'}
+                  <br />
+                  <span className="dim">Resolução:</span> {p.resolucao_final || p.veredito?.classificacao || '—'}
+                </p>
+                <details className="prec-doc">
+                  <summary>Ver documento completo</summary>
+                  <JsonViewer doc={p} />
+                </details>
               </div>
             );
           })}

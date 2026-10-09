@@ -598,6 +598,43 @@ footer.app-footer p {
   padding: 12px 0;
   border-top: 1px solid var(--border-subtle);
 }
+/* resumo legível do precedente; o BSON completo fica sob demanda */
+.prec-resumo {
+  margin: 8px 0 6px;
+  color: var(--text-sec);
+  font-size: 13px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+.prec-doc > summary {
+  cursor: pointer;
+  color: var(--link);
+  font-size: 13px;
+  padding: 4px 0;
+}
+.prec-doc > summary:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.prec-doc[open] > summary {
+  margin-bottom: 6px;
+}
+
+/* sinais observados: texto livre do modelo, então lista que quebra linha (não pílula) */
+.sinais {
+  margin: 10px 0 0;
+  padding-left: 18px;
+  color: var(--text-sec);
+  font-size: 13px;
+  line-height: 1.5;
+}
+.sinais li {
+  overflow-wrap: anywhere;
+}
+.sinais li + li {
+  margin-top: 2px;
+}
+
 .prec-item:first-of-type {
   border-top: none;
 }
