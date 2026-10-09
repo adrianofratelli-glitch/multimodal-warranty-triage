@@ -9,6 +9,7 @@ import anthropic
 import httpx
 import pytest
 
+import guardrails_triagem
 import langfuse_tracing
 import llm
 from guardrails_triagem import avaliar_instrucao, mascarar_pii
@@ -48,6 +49,23 @@ def test_instruction_in_report_is_flagged_even_when_diluted(texto):
     res = avaliar_instrucao(texto)
     assert res["suspeito"] is True
     assert len(res["clausula"]) <= 200
+
+
+@requires_shared
+def test_injection_after_many_distinct_clauses_is_flagged():
+    # Regressão (pov-shared >= 0.2.0): mais de 8 cláusulas distintas levantava
+    # ClauseBudgetExceeded e o relato passava como "sem sinal" (fail-open).
+    relato = " ".join(f"Frase legítima número {i} sobre a cadeira e a caixa." for i in range(40))
+    res = avaliar_instrucao(relato + " " + INJECAO)
+    assert res["suspeito"] is True
+
+
+@requires_shared
+def test_report_above_clause_budget_fails_closed():
+    relato = " ".join(f"Frase legítima número {i} sobre a cadeira." for i in range(guardrails_triagem.MAX_CLAUSULAS + 5))
+    res = avaliar_instrucao(relato)
+    assert res["suspeito"] is True
+    assert "fragmentado" in res["motivo"]
 
 
 @requires_shared
