@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+- Atualiza dependências compatíveis e pisos de segurança; alinha metadados de versão entre aplicação e frontend.
+- Retira logs temporários de validação do repositório.
+
 ## 1.1.1 (2026-10-09)
 
 - Security: with `pov-shared` >= 0.2.0 a report with more than 8 distinct clauses raised `ClauseBudgetExceeded` and was treated as "no signal" (fail-open), so an instruction hidden after many sentences was not flagged. Every clause is now scored (budget 128) and a report above the budget is flagged as suspicious. Regression tests in `tests/adversarial/test_llm_adversarial.py`.

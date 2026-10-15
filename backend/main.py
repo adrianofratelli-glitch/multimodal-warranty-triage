@@ -74,7 +74,7 @@ ALLOWED_FORMATS = {"JPEG", "PNG", "MPO"}
 observability.setup_logging()
 logger = logging.getLogger("mm_garantia")
 
-app = FastAPI(title="Análise de Garantia Multimodal")
+app = FastAPI(title="Análise de Garantia Multimodal", version="1.1.1")
 
 app.add_middleware(
     CORSMiddleware,
