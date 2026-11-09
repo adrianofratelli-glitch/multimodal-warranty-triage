@@ -1,5 +1,7 @@
 # Queries, Aggregation Pipelines e Índices — MongoDB
 
+> Números de linha podem ficar defasados após mudanças: a fonte atualizada é [MAPA_DO_CODIGO.md](../MAPA_DO_CODIGO.md).
+
 > Todas as queries reais do backend, com arquivo:linha, o que fazem e por quê. Sem dados sensíveis de cliente — os exemplos usam os mesmos placeholders fictícios do seed (SKUs tipo `CAD-GAMER-X`, pedidos tipo `PED-90001`). Arquitetura geral em `architecture.md`.
 
 ---

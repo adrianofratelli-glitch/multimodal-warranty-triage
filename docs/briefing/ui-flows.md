@@ -1,5 +1,7 @@
 # Telas, fluxos e componentes — Frontend
 
+> Números de linha podem ficar defasados após mudanças: a fonte atualizada é [MAPA_DO_CODIGO.md](../MAPA_DO_CODIGO.md).
+
 > Onde cada tela/componente vive e o que ela mostra. Arquitetura geral em `architecture.md`; queries por trás de cada tela em `queries.md`.
 
 ---
@@ -8,7 +10,7 @@
 
 React 18 + Vite + LeafyGreen (design system MongoDB), JavaScript puro (sem TypeScript), sem router, sem lib de state — `fetch` cru embrulhado em `frontend/src/api.js`. Portas fixas (`strictPort: true`, Vite em `5190`); o proxy do Vite encaminha `/api` e `/media` para o backend em `8100`.
 
-`nodePolyfills` é obrigatório no `vite.config.js` — `@emotion/server` (dependência transitiva do LeafyGreen) usa builtins do Node no bundle de browser.
+Polyfills de Node são obrigatórios no browser: o `vite.config.js` não usa `nodePolyfills`, e sim aliases manuais (`buffer`, `events`, `process`, `stream`) mais `frontend/src/polyfills.js` — `@emotion/server` (dependência transitiva do LeafyGreen) usa builtins do Node no bundle de browser.
 
 ## Shell — `frontend/src/App.jsx`
 

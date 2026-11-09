@@ -1,6 +1,6 @@
 """Catálogo de defeitos (FONTE DE SEED) + helpers compartilhados.
 
-CATALOGO_DEFEITOS aqui é só a SEMENTE: seed_catalogo.py grava esta tabela na
+CATALOGO_DEFEITOS aqui é só a SEMENTE: seed_meta.py grava esta tabela na
 collection `catalogo` do MongoDB, e o runtime (main.py) passa a LER do banco.
 Os helpers compor_frase / derivar_tipo_defeito continuam sendo o contrato de
 consistência usado nos dois lados (seed e runtime) — a frase embedada no seed
