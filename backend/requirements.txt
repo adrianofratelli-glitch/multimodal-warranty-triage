@@ -8,7 +8,7 @@ voyageai>=0.3
 Pillow>=10
 python-multipart>=0.0.9
 # Langfuse v2 (fail-open). O SDK v3+ mudou a API de trace e quebra em silêncio.
-langfuse>=2,<3
+langfuse>=5.2.0,<6
 # LLM: pov-shared (grove_client) não está no PyPI; instale com
 #   uv pip install -e "../../_shared[llm]"   (a partir de backend/)
 
