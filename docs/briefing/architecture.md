@@ -79,6 +79,8 @@ System prompt e schema da tool levam `cache_control: {"type": "ephemeral"}` — 
 - **Falha transitória de provedor (timeout/rede/5xx do gateway/Voyage) é tratada separado de bug de programação** — a primeira vira log WARNING e fallback seguro (`_FALLBACK`, veredito "inconclusivo" preservando o caso para revisão humana); a segunda vira log CRITICAL com stack trace completo, porque não é "provedor fora do ar", é bug nosso.
 - **Colisão de `numero_chamado`** (6 hex chars, `CHM-{ano}-{hex}`) tem retry automático (`_inserir_chamado_com_retry`, até 3 tentativas) sem reprocessar o veredito já em memória.
 - **Change Streams em vez de polling** para a fila de revisão em tempo real — `GET /api/chamados/stream` (SSE) sobre `chamados().watch(...)`. O evento serve de **gatilho**, não payload: o front recebe e rechama `GET /api/chamados/pendentes`, então a fila fica sempre consistente com o banco mesmo se um evento se perder.
+- **Um worker só no uvicorn** (`start.sh`, `--workers 1`): as métricas em processo e o change stream SSE assumem processo único; vários workers dividiriam contadores e duplicariam streams.
+- **Prazo no frontend** (`frontend/src/api.js`, `boundedRequest`): requisições comuns são abortadas em 30 s e o upload da análise em 300 s, cobrindo headers, corpo e as tentativas já previstas; resposta 2xx com JSON incompleto vira erro explícito, sem nova política de retry. Regressão em `frontend/tests/http-deadline.test.mjs`.
 - **Paginação real por cursor** em `/api/chamados/pendentes` (`created_at`+`_id`, não `skip`) — um `to_list(length=50)` sem paginação escondia permanentemente os casos mais antigos acima de 50 pendentes.
 
 ## Por que não há `agent-behavior.md`

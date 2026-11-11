@@ -1,6 +1,6 @@
 # Mapa do código — multimodal-warranty-triage
 
-> Também conhecida como: MadeiraMadeira (garantia, triagem multimodal). Portas: frontend 5190 / backend 8100. Em uma frase: o cliente abre um chamado de garantia com foto, o sistema confere se a foto é do produto certo, busca chamados parecidos já resolvidos (Atlas Vector Search + `$rankFusion`), o Claude sugere a causa do defeito e um humano confirma na fila de revisão.
+> Também conhecida como: Triagem de garantia (multimodal). Portas: frontend 5190 / backend 8100. Em uma frase: o cliente abre um chamado de garantia com foto, o sistema confere se a foto é do produto certo, busca chamados parecidos já resolvidos (Atlas Vector Search + `$rankFusion`), o Claude sugere a causa do defeito e um humano confirma na fila de revisão.
 
 Este mapa é para localizar código rápido. O detalhe de cada query está em [briefing/queries.md](briefing/queries.md), a arquitetura em [briefing/architecture.md](briefing/architecture.md) e as telas em [briefing/ui-flows.md](briefing/ui-flows.md). Aqui só aponto o caminho.
 
