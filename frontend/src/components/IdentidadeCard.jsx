@@ -2,50 +2,44 @@ import Badge from '@leafygreen-ui/badge';
 import Banner from '@leafygreen-ui/banner';
 
 /** Verificação de identidade: a foto do cliente bate com as fotos de referência
- * do SKU (catalogo_fotos, $vectorSearch)? Sinal de produto certo/errado — não
- * de defeito, que continua sendo decisão do Claude via VeredictoCard. */
+ * do SKU (catalogo_fotos, $vectorSearch só com o vetor da imagem)? Sinal de
+ * produto certo/errado — não de defeito, que continua sendo decisão do Claude
+ * via VeredictoCard. Estados (backend/rag.py::decidir_identidade): aprovado,
+ * inconclusivo (revisar), divergente, sem_referencia (SKU sem foto no catálogo). */
+const ROTULO = {
+  aprovado: { badge: 'green', texto: 'confere' },
+  inconclusivo: { badge: 'yellow', texto: 'inconclusivo — revisar' },
+  divergente: { badge: 'red', texto: 'divergente' },
+  sem_referencia: { badge: 'lightgray', texto: 'sem referência no catálogo' },
+};
+
+const pct = (v) => (v == null ? '—' : `${Math.round(v * 100)}%`);
+
 export default function IdentidadeCard({ identidade }) {
   if (!identidade) return null;
-  const { sku, score, top_sku, top_score, fotos_comparadas, abaixo_threshold } = identidade;
-
-  if (score === null) {
-    return (
-      <div className="card neutral">
-        <div className="card-header">
-          <span className="card-title">Verificação de identidade do produto</span>
-          <Badge variant="lightgray">sem fotos de referência</Badge>
-        </div>
-        <p className="dim" style={{ marginTop: 8 }}>
-          Catálogo ainda não tem fotos seedadas em catalogo_fotos — etapa pulada.
-        </p>
-      </div>
-    );
-  }
-
-  const pct = Math.round(score * 100);
-  const disputa = top_sku && top_sku !== sku;
+  const { sku, score, concorrente_sku, concorrente_score, fotos_comparadas, abaixo_threshold } = identidade;
+  // Chamados antigos não têm `status`: derivado do booleano legado.
+  const status = identidade.status_chamado || identidade.status || (abaixo_threshold ? 'divergente' : 'aprovado');
+  const motivo = identidade.motivo_chamado || identidade.motivo;
+  const rotulo = ROTULO[status] || ROTULO.inconclusivo;
 
   return (
     <div className="card neutral">
       <div className="card-header">
         <span className="card-title">Verificação de identidade do produto</span>
-        <Badge variant={abaixo_threshold ? 'red' : 'green'}>{pct}% de similaridade</Badge>
+        <Badge variant={rotulo.badge}>
+          {rotulo.texto}{score != null ? ` · ${pct(score)}` : ''}
+        </Badge>
       </div>
       <p className="dim" style={{ marginTop: 8 }}>
-        Comparado ($vectorSearch) com {fotos_comparadas} foto(s) de referência do catálogo inteiro —
-        o SKU do pedido precisa ser o melhor match entre todos, não só "parecido o bastante" sozinho.
-        Embedding multimodal Voyage AI mede semelhança semântica, não detecta o defeito em si.
+        Foto comparada ($vectorSearch, só a imagem) com {fotos_comparadas} foto(s) de referência do catálogo inteiro.
+        O SKU do pedido ({sku}) precisa vencer o produto mais parecido seguinte
+        {concorrente_sku ? <> ({concorrente_sku}, {pct(concorrente_score)})</> : null} por margem mínima; empate
+        entre variantes vai para revisão. Embedding multimodal Voyage AI mede semelhança, não detecta o defeito.
       </p>
-      {abaixo_threshold && disputa && (
-        <Banner variant="warning" darkMode style={{ marginTop: 10 }}>
-          Essa foto parece mais com <b>{top_sku}</b> ({Math.round(top_score * 100)}%) do que com o
-          produto do pedido ({sku}, {pct}%) — pode ser upload errado. Confirmar manualmente antes de aprovar.
-        </Banner>
-      )}
-      {abaixo_threshold && !disputa && (
-        <Banner variant="warning" darkMode style={{ marginTop: 10 }}>
-          Similaridade baixa mesmo sendo o melhor match do catálogo — a foto pode não ser de
-          nenhum produto conhecido. Confirmar manualmente antes de aprovar.
+      {status !== 'aprovado' && motivo && (
+        <Banner variant={status === 'divergente' ? 'danger' : 'warning'} darkMode style={{ marginTop: 10 }}>
+          {motivo} Confirmar manualmente antes de aprovar.
         </Banner>
       )}
     </div>

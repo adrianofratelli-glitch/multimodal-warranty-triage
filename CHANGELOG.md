@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Identity check ("does the photo match the ordered product?"): embeds the image only (the case text named the claimed SKU and biased the score, approving a 6-door wardrobe photo on a 3-door order), compares the order's SKU with the best other SKU by a 0.02 margin and returns an explicit `status` (`aprovado`, `inconclusivo`, `divergente`, `sem_referencia`) with a `motivo`. A tie between variants is never approved; a SKU with no reference photo goes to review instead of `divergente`. Measured with `eval/run_quality.py` on a 30-case matrix: false acceptance 0.08 → 0, accuracy 0.767 → 1.0.
 - Atualiza dependências compatíveis e pisos de segurança; alinha metadados de versão entre aplicação e frontend.
 - Retira logs temporários de validação do repositório.
 

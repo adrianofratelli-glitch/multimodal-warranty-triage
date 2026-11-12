@@ -33,3 +33,6 @@ playwright-report/
 # internal-only presentation scripts — not part of the app, never publish
 docs/PoV-Roteiro-Apresentacao-PT.pdf
 docs/PoV-Presentation-Script-EN.pdf
+
+# relatorios locais do eval de qualidade (nao versionar)
+eval/reports/

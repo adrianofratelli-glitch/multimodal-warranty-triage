@@ -40,7 +40,7 @@ from defeitos_catalog import compor_frase, derivar_tipo_defeito
 from guardrails_triagem import avaliar_instrucao, mascarar_pii
 from llm import MODEL, analisar_veredito
 from storage import upload_imagem, url_for
-from voyage import EMBED_DIM, embed_multimodal
+from voyage import EMBED_DIM, embed_imagem, embed_multimodal
 from voyage import MODEL as VOYAGE_MODEL
 
 # Falhas esperadas de rede/API dos provedores (timeout, rate limit, 5xx) — ver
@@ -454,6 +454,13 @@ async def _embed(frase: str, pil: Image.Image) -> list[float]:
     )
 
 
+async def _embed_imagem(pil: Image.Image) -> list[float]:
+    """Vetor só da imagem para a identidade (a frase nomeia o SKU e enviesaria o score)."""
+    return await asyncio.wait_for(
+        run_in_threadpool(embed_imagem, pil, "query"), timeout=EMBED_DEADLINE_SECONDS
+    )
+
+
 @app.post("/api/analisar")
 async def analisar(
     request: Request,
@@ -560,10 +567,12 @@ async def _processar_analise(
 
     t_embed = time.perf_counter()
     try:
-        query_vector = await _embed(frase, pil)
-        # Embedding de cada foto extra: mesma frase do chamado (o item já está nela
-        # via checklist), contrato idêntico ao da foto principal.
-        extras_vetores = await asyncio.gather(*(_embed(frase, extra_pil) for extra_pil, _ in extras_normalizadas))
+        # Precedentes usam frase + foto; a identidade usa só a foto (rag.py explica
+        # o viés do nome do produto). Os dois embeddings saem em paralelo.
+        query_vector, ident_vector = await asyncio.gather(_embed(frase, pil), _embed_imagem(pil))
+        # Foto extra: identidade só-imagem também. O vetor frase + foto extra não é
+        # usado em nenhuma busca, então não é calculado.
+        extras_vetores = await asyncio.gather(*(_embed_imagem(extra_pil) for extra_pil, _ in extras_normalizadas))
     except PROVIDER_TRANSIENT_ERRORS as e:
         _cancelar(todas_uploads)
         logger.warning("multimodal embedding failed (%s) request_id=%s: %s", type(e).__name__, request_id, str(e)[:200])
@@ -576,7 +585,7 @@ async def _processar_analise(
         logger.critical("Unexpected error in multimodal embedding — programming bug suspected request_id=%s", request_id, exc_info=True)
         tracing.finish_trace(trace, output={"erro": "embedding_interno"})
         raise SafeQueryError("embedding", "Falha inesperada ao gerar o embedding multimodal.") from e
-    tracing.log_span(trace, name="voyage_embedding", output_data={"dim": len(query_vector), "vetores": 1 + len(extras_vetores)},
+    tracing.log_span(trace, name="voyage_embedding", output_data={"dim": len(query_vector), "vetores": 2 + len(extras_vetores)},
                      metadata={"model": VOYAGE_MODEL, "latency_ms": int((time.perf_counter() - t_embed) * 1000)})
 
     # Identidade e precedentes são consultas independentes sobre o mesmo vetor.
@@ -589,7 +598,7 @@ async def _processar_analise(
     t_busca = time.perf_counter()
     try:
         identidade_principal, *identidades_extra, (precedentes, funnel) = await asyncio.gather(
-            rag.verificar_identidade(query_vector, produto["sku"], categoria),
+            rag.verificar_identidade(ident_vector, produto["sku"], categoria),
             *(rag.verificar_identidade(v, produto["sku"], categoria) for v in extras_vetores),
             busca,
         )
@@ -604,11 +613,15 @@ async def _processar_analise(
             {"item": item, **ident}
             for item, ident in zip(fotos_extra_itens, identidades_extra, strict=True)
         ],
-        "abaixo_threshold": identidade_principal["abaixo_threshold"] or any(i["abaixo_threshold"] for i in identidades_extra),
     }
+    # O status mais severo entre a foto principal e as extras vale para o chamado.
+    combinado = rag.combinar_identidades([identidade_principal, *identidades_extra])
+    identidade.update(status_chamado=combinado["status"], motivo_chamado=combinado["motivo"],
+                      abaixo_threshold=combinado["status"] != "aprovado")
     tracing.log_span(trace, name="atlas_vector_search",
                      output_data={"precedentes": len(precedentes), "identidade_score": identidade.get("score"),
-                                  "identidade_abaixo_threshold": identidade["abaixo_threshold"]},
+                                  "identidade_abaixo_threshold": identidade["abaixo_threshold"],
+                                  "identidade_status": identidade["status_chamado"]},
                      metadata={"modo": funnel.get("modo"), "latency_ms": funnel["latency_ms"]})
 
     imagens_extra_veredito = [

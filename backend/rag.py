@@ -34,18 +34,82 @@ def _display_pipeline(pipeline: list[dict]) -> list[dict]:
 
     return compact(pipeline)
 
-# Um threshold absoluto sozinho é frágil aqui: fotos de produto em estúdio
-# (fundo branco, mesma iluminação) fazem QUALQUER par de móveis pontuar alto
-# no embedding multimodal — a métrica captura "é foto de produto de mobília",
-# não a identidade fina do item. Uma cadeira de plástico contra o SKU de uma
-# cadeira gamer já pontuou 0.83, perigosamente perto do range "mesmo produto"
-# (~0.92-0.94) medido antes. Por isso o sinal principal agora é RELATIVO: o
-# SKU reivindicado precisa ser o melhor match entre TODOS os SKUs do catálogo
-# (ou empatar dentro de uma margem pequena) — não basta "parecido o bastante"
-# no vácuo. O piso absoluto abaixo é só um backstop pro caso raro de o produto
-# não ter nenhum parente próximo no catálogo (nem o certo, nem nenhum outro).
+# Regra de identidade ("a foto confere com o produto do pedido?"), medida em
+# 2026-11-12 com eval/run_quality.py (matriz 5 fotos de demo x 6 SKUs).
+#
+# 1. A consulta usa embedding SÓ DA IMAGEM (voyage.embed_imagem). O vetor da
+#    busca de precedentes leva a frase do chamado, que inclui o nome do produto
+#    reivindicado: medido, esse texto puxa o score para o SKU do pedido e chegou a
+#    fazer a foto de uma cadeira "ganhar" como colchão (0,813 x 0,809) e a foto do
+#    6 portas "ganhar" como 3 portas (0,8601 x 0,8597). A alegação não pode entrar
+#    na evidência.
+# 2. Sinal relativo: o SKU do pedido é comparado com o melhor OUTRO SKU do
+#    catálogo inteiro (margem = score_pedido - score_concorrente). Fotos de estúdio
+#    pontuam alto entre si, então "parecido o bastante" sozinho não serve.
+# 3. Decisão (decidir_identidade):
+#    - SKU sem foto de referência  -> "sem_referencia" (revisão humana);
+#    - margem <= -MARGEM           -> "divergente" (outro SKU claramente melhor);
+#    - |margem| < MARGEM           -> "inconclusivo" (empate técnico, tipicamente
+#                                     variante da mesma categoria: nunca aprova);
+#    - margem >= MARGEM e score < THRESHOLD -> "inconclusivo" (melhor do catálogo,
+#                                     mas pouco parecido com tudo);
+#    - senão                       -> "aprovado".
+# Medido só-imagem: foto certa 0,839-0,912; menor margem legítima +0,035 (3 portas
+# contra o 6 portas); maior score de SKU errado 0,823. MARGEM = 0,02 fica abaixo
+# da menor margem legítima e o piso 0,80 fica entre o pior acerto e o pior erro
+# entre categorias. Amostra pequena (5 fotos): a deriva segue no log
+# `identidade_metrica` e no eval semanal.
 IDENTIDADE_THRESHOLD = 0.80
-IDENTIDADE_MARGEM_EMPATE = 0.01
+IDENTIDADE_MARGEM = 0.02
+STATUS_IDENTIDADE = ("aprovado", "inconclusivo", "divergente", "sem_referencia")
+# Ordem de severidade para combinar foto principal + fotos extras (a pior vence).
+_SEVERIDADE = {"aprovado": 0, "sem_referencia": 1, "inconclusivo": 2, "divergente": 3}
+
+
+def decidir_identidade(melhor_por_sku: dict[str, float], sku: str, categoria_por_sku: dict[str, str] | None = None) -> dict:
+    """Regra pura de identidade sobre o melhor score por SKU (sem Atlas, testável).
+
+    Retorna {status, motivo, score, top_sku, top_score, concorrente_sku,
+    concorrente_score, margem}. `score` é None quando o SKU do pedido não tem foto
+    de referência no catálogo.
+    """
+    categoria_por_sku = categoria_por_sku or {}
+    top_sku, top_score = (max(melhor_por_sku.items(), key=lambda kv: kv[1]) if melhor_por_sku else (None, None))
+    base = {"score": None, "top_sku": top_sku, "top_score": top_score,
+            "concorrente_sku": None, "concorrente_score": None, "margem": None}
+    if sku not in melhor_por_sku:
+        motivo = ("SKU do pedido sem foto de referência no catálogo: não dá para confirmar o produto pela foto. "
+                  "Vai para revisão humana.")
+        return {**base, "status": "sem_referencia", "motivo": motivo}
+
+    score = melhor_por_sku[sku]
+    outros = {k: v for k, v in melhor_por_sku.items() if k != sku}
+    if outros:
+        conc_sku, conc_score = max(outros.items(), key=lambda kv: kv[1])
+        margem = score - conc_score
+    else:
+        conc_sku, conc_score, margem = None, None, None
+    out = {**base, "score": score, "concorrente_sku": conc_sku, "concorrente_score": conc_score, "margem": margem}
+    mesma_categoria = conc_sku is not None and categoria_por_sku.get(conc_sku) is not None \
+        and categoria_por_sku.get(conc_sku) == categoria_por_sku.get(sku)
+
+    if margem is not None and margem <= -IDENTIDADE_MARGEM:
+        return {**out, "status": "divergente",
+                "motivo": f"A foto parece mais com {conc_sku} do que com o produto do pedido."}
+    if margem is not None and margem < IDENTIDADE_MARGEM:
+        alvo = "uma variante da mesma categoria" if mesma_categoria else "outro produto do catálogo"
+        return {**out, "status": "inconclusivo",
+                "motivo": f"Empate técnico com {conc_sku} ({alvo}): a foto não separa os dois. Revisar."}
+    if score < IDENTIDADE_THRESHOLD:
+        return {**out, "status": "inconclusivo",
+                "motivo": "É o produto mais parecido do catálogo, mas a similaridade é baixa. Revisar."}
+    return {**out, "status": "aprovado", "motivo": "A foto confere com o produto do pedido."}
+
+
+def combinar_identidades(identidades: list[dict]) -> dict:
+    """Status mais severo entre foto principal e extras (qualquer foto divergente sinaliza o chamado)."""
+    pior = max(identidades, key=lambda i: _SEVERIDADE.get(i.get("status"), 0))
+    return {"status": pior.get("status"), "motivo": pior.get("motivo")}
 
 
 async def vector_search(query_vector: list[float], categoria: str) -> tuple[list[dict], dict]:
@@ -81,19 +145,17 @@ async def vector_search(query_vector: list[float], categoria: str) -> tuple[list
 
 
 async def verificar_identidade(query_vector: list[float], sku: str, categoria: str | None = None) -> dict:
-    """$vectorSearch da foto do cliente contra TODAS as fotos de referência do
-    catálogo (catalogo_fotos, sem filtro de sku) — responde "essa foto é do
-    produto certo?", não "tem defeito?" (isso continua sendo papel do Claude
-    com o precedente histórico).
+    """"Essa foto é do produto do pedido?" ($vectorSearch em catalogo_fotos, sem
+    filtro de sku). Não responde "tem defeito?" (papel do Claude com precedentes).
 
-    O sinal é RELATIVO: o SKU reivindicado precisa ser o melhor match entre
-    todos os SKUs (ou empatar dentro de IDENTIDADE_MARGEM_EMPATE) — comparar
-    só contra o próprio SKU não pega o caso de "parece com QUALQUER móvel
-    fotografado em estúdio". Um piso absoluto (IDENTIDADE_THRESHOLD) cobre o
-    caso do produto não ter parente nenhum no catálogo.
+    `query_vector` deve ser o embedding SÓ DA IMAGEM (voyage.embed_imagem): o texto
+    do chamado nomeia o produto reivindicado e enviesa o resultado (ver a regra
+    acima). Se o SKU do pedido não aparece entre os 30 mais parecidos, uma segunda
+    busca filtrada por sku traz o score dele ou confirma que não há referência.
 
-    Retorna {sku, score, top_sku, top_score, fotos_comparadas, abaixo_threshold}.
-    Se o catálogo não tem fotos seedadas, retorna score=None (não bloqueia o fluxo).
+    Retorna {sku, status, motivo, score, top_sku, top_score, concorrente_sku,
+    concorrente_score, margem, fotos_comparadas, abaixo_threshold, query_details}.
+    `abaixo_threshold` (compatibilidade) = status != "aprovado".
     """
     pipeline = [
         {
@@ -110,50 +172,58 @@ async def verificar_identidade(query_vector: list[float], sku: str, categoria: s
     ]
     cursor = catalogo_fotos().aggregate(pipeline, maxTimeMS=config.MAX_TIME_MS)
     docs = await safe_query(cursor.to_list(length=30))
-    if not docs:
-        return {"sku": sku, "score": None, "top_sku": None, "top_score": None, "fotos_comparadas": 0, "abaixo_threshold": False,
-                "query_details": {"operation": "aggregate", "pipeline": _display_pipeline(pipeline)}}
 
     melhor_por_sku: dict[str, float] = {}
+    categoria_por_sku: dict[str, str] = {}
     for d in docs:
         melhor_por_sku[d["sku"]] = max(melhor_por_sku.get(d["sku"], 0.0), d["score"])
+        if d.get("categoria"):
+            categoria_por_sku[d["sku"]] = d["categoria"]
 
-    score_sku = melhor_por_sku.get(sku, 0.0)
-    top_sku, top_score = max(melhor_por_sku.items(), key=lambda kv: kv[1])
+    if docs and sku not in melhor_por_sku:
+        filtrado = [
+            {**pipeline[0], "$vectorSearch": {**pipeline[0]["$vectorSearch"], "filter": {"sku": sku}, "limit": 1}},
+            *pipeline[1:],
+        ]
+        cur = catalogo_fotos().aggregate(filtrado, maxTimeMS=config.MAX_TIME_MS)
+        proprio = await safe_query(cur.to_list(length=1))
+        if proprio:
+            melhor_por_sku[sku] = proprio[0]["score"]
+            if proprio[0].get("categoria"):
+                categoria_por_sku[sku] = proprio[0]["categoria"]
+    if categoria and sku not in categoria_por_sku:
+        categoria_por_sku[sku] = categoria
 
-    eh_o_melhor_ou_empate = score_sku >= top_score - IDENTIDADE_MARGEM_EMPATE
-    acima_do_piso = score_sku >= IDENTIDADE_THRESHOLD
-    aprovado = eh_o_melhor_ou_empate and acima_do_piso
-    dentro_da_margem_de_empate = not eh_o_melhor_ou_empate and score_sku >= top_score - (2 * IDENTIDADE_MARGEM_EMPATE)
+    decisao = decidir_identidade(melhor_por_sku, sku, categoria_por_sku)
+    if not docs:
+        decisao["motivo"] = "Catálogo sem fotos de referência: identidade não verificada. Vai para revisão humana."
 
-    # Instrumentação mínima de deriva: IDENTIDADE_THRESHOLD/IDENTIDADE_MARGEM_EMPATE
-    # foram calibrados com uma única amostra anedotica (ver comentário acima). Sem
-    # isso não há visibilidade se o threshold está certo pra novas categorias/SKUs
-    # ao longo do tempo — não é um pipeline de validação, só o sinal cru em log
-    # para permitir análise offline futura (ex.: grep de "identidade_metrica" nos
-    # logs, ou ingestão numa collection dedicada se o volume justificar).
-    if not aprovado or dentro_da_margem_de_empate:
+    # Deriva: todo resultado não aprovado vira WARNING `identidade_metrica`
+    # (logger mm_garantia.rag; LOG_JSON=1 para agregar). O eval semanal mede a
+    # regra contra o gabarito; o log mostra como ela se comporta em produção.
+    if decisao["status"] != "aprovado":
         logger.warning(
-            "identidade_metrica abaixo_threshold=%s dentro_margem_empate=%s "
-            "score_sku=%.4f top_score=%.4f sku=%s top_sku=%s categoria=%s",
-            not aprovado,
-            dentro_da_margem_de_empate,
-            score_sku,
-            top_score,
+            "identidade_metrica status=%s score_sku=%s concorrente_score=%s margem=%s sku=%s concorrente_sku=%s categoria=%s",
+            decisao["status"],
+            _fmt(decisao["score"]),
+            _fmt(decisao["concorrente_score"]),
+            _fmt(decisao["margem"]),
             sku,
-            top_sku,
+            decisao["concorrente_sku"],
             categoria,
         )
 
     return {
         "sku": sku,
-        "score": score_sku,
-        "top_sku": top_sku,
-        "top_score": top_score,
+        **decisao,
         "fotos_comparadas": len(docs),
-        "abaixo_threshold": not aprovado,
+        "abaixo_threshold": decisao["status"] != "aprovado",
         "query_details": {"operation": "aggregate", "pipeline": _display_pipeline(pipeline)},
     }
+
+
+def _fmt(v: float | None) -> str:
+    return "None" if v is None else f"{v:.4f}"
 
 
 async def hybrid_search(query_vector: list[float], texto: str, categoria: str) -> tuple[list[dict], dict]:

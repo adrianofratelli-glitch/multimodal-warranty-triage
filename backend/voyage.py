@@ -50,3 +50,18 @@ def embed_multimodal(frase: str, imagem_pil, input_type: str) -> list[float]:
         input_type=input_type,
     )
     return result.embeddings[0]
+
+
+def embed_imagem(imagem_pil, input_type: str = "query") -> list[float]:
+    """Vetor só da imagem, sem texto: usado na verificação de identidade.
+
+    A frase do chamado nomeia o produto reivindicado; se entrasse aqui, puxaria o
+    score para o SKU do pedido (medido em rag.py). Mesmo modelo/dimensão do
+    embed_multimodal, então compara com as fotos de referência de catalogo_fotos.
+    """
+    result = get_client().multimodal_embed(
+        inputs=[[imagem_pil]],
+        model=MODEL,
+        input_type=input_type,
+    )
+    return result.embeddings[0]

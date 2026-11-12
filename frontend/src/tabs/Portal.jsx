@@ -105,7 +105,7 @@ const CENARIOS = [
     checklist: ['porta_desalinhada'],
     descricao: 'Uma das portas ficou desalinhada e nao fecha direito desde a entrega.',
     imagem: '/demo/GR-3PORTAS.jpg',
-    explicacao: 'Pedido é do Guarda-Roupa 6 Portas, mas a foto é de um guarda-roupa diferente (3 Portas) — visualmente parecido. A identidade deve sinalizar como divergente mesmo com alta similaridade absoluta.',
+    explicacao: 'Pedido é do Guarda-Roupa 6 Portas, mas a foto é de um guarda-roupa diferente (3 Portas) — visualmente parecido. A identidade compara só a imagem com o catálogo inteiro: o 3 Portas vence o 6 Portas por margem clara e o resultado é divergente, mesmo com alta similaridade absoluta (empate entre variantes viraria "inconclusivo — revisar", nunca aprovado).',
   },
   {
     label: '⚠ Foto de produto totalmente errado',
@@ -115,7 +115,7 @@ const CENARIOS = [
     checklist: ['odor_forte'],
     descricao: 'O colchao chegou com um odor muito forte, dificil de tirar.',
     imagem: '/demo/CAD-GAMER-X.jpg',
-    explicacao: 'Pedido é de um colchão, mas o cliente subiu (por engano) a foto de uma cadeira gamer. Similaridade deve cair bem abaixo do threshold.',
+    explicacao: 'Pedido é de um colchão, mas o cliente subiu (por engano) a foto de uma cadeira gamer. A cadeira vence o colchão por margem larga: divergente.',
   },
 ];
 

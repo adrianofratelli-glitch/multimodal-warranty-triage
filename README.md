@@ -30,7 +30,7 @@ The run above is a good example of the model not bluffing: the submitted photo w
 flowchart LR
     A[order + checklist + description + photo] --> B[normalize to JPEG]
     B --> C[Voyage multimodal 1024d]
-    C --> D{{"identity: best match in the catalog?"}}
+    B --> D{{"identity (image only): best match in the catalog?"}}
     C --> E["precedents: $vectorSearch / $rankFusion"]
     E --> F[Claude · forced tool use]
     F --> G[(cases · under review)]
@@ -106,6 +106,19 @@ LIVE_API_URL=http://127.0.0.1:8100 backend/.venv/bin/pytest -q backend/tests/adv
 `backend/tests/adversarial/` covers hostile uploads (text/SVG/PDF/GIF/WebP disguised as JPEG, decompression bombs, truncated files, EXIF with GPS, traversal in names and checklist ids), NoSQL operator injection, prompt injection in the report and written inside the photo, dilution of the injection signal in a long report, PII in prompts/traces, Grove timeout/429/5xx/slow gateway, Langfuse down, parallel identical submissions and concurrent reviews. In the public CI the tests that need the private `pov-shared` package are skipped.
 
 Docker: `docker build --build-context shared=../_shared -t warranty-triage . && docker run --env-file .env -p 18081:8080 warranty-triage`.
+
+## Quality evaluation
+
+`eval/run_quality.py` measures quality, not just regressions, against a small answer key (`eval/gabarito_qualidade.json`, a **draft** derived from the seed, still to be validated). It runs the real backend path (Voyage query embedding, `rag.vector_search`, `rag.hybrid_search`, `rag.verificar_identidade`) and only reads the database (search aggregations). It always exits 0 and writes a JSON report.
+
+```bash
+backend/.venv/bin/python eval/run_quality.py --out /tmp/warranty_quality.json                   # search + identity, no LLM
+backend/.venv/bin/python eval/run_quality.py --secoes veredito --out /tmp/warranty_llm.json     # + 4 Claude verdicts via the gateway
+```
+
+- **Similar resolved claims:** 20 new claims (versioned photos in `frontend/public/demo/`, rewritten descriptions; 5 without checklist) whose known neighbor is a seed precedent. Recall@1, recall@3 and MRR for vector and `$rankFusion`. Each category has 5 precedents, so recall@5 is trivially 1.0.
+- **Does the photo match the product?** The full matrix of the 5 demo photos × 6 order SKUs (30 cases: 5 correct, 4 close variant of the same category, 16 other category, 5 SKU without a catalog photo): accuracy, false rejection and false acceptance of `rag.decidir_identidade`. The check embeds the image only (the case text names the claimed SKU and biased the score) and compares the order's SKU with the best other SKU in the whole catalog: margin ≤ −0.02 → `divergente`; |margin| < 0.02 → `inconclusivo` (review; a tie between variants is never approved); otherwise score < 0.80 → `inconclusivo`; otherwise `aprovado`. A SKU with no reference photo returns `sem_referencia` (human review), not `divergente`. Measured on 2026-11-12: accuracy 1.0, false acceptance 0, false rejection 0 (the previous rule: 0.767 / 0.08 / 0 on the same 30 cases). Small sample: changing a threshold requires re-running the eval.
+- **Suggested cause (optional, LLM):** the verdict is valid (not the manual-review fallback) and its cause is the precedent's or `inconclusivo`.
 
 ## Resilience and observability (on by default)
 

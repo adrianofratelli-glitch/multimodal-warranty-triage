@@ -99,7 +99,7 @@ Detalhe e exemplos em [briefing/queries.md](briefing/queries.md). Collections: `
 | Promover o chamado a `em_analise` (upload concluído) | `main.py::_processar_analise` (update em `main.py:695`) | `update_one $set` | `chamados` |
 | Precedentes, modo vetorial | `backend/rag.py::vector_search` (51) | `$vectorSearch` (filtro `categoria` + `status: resolvido`) + `$addFields` + `$project` | `chamados` |
 | Precedentes, modo híbrido (o que a UI usa) | `rag.py::hybrid_search` (159) | `$rankFusion` com `$vectorSearch` + `$search` (`compound`), pesos 0,7/0,3; cai para `vector_search` se faltar suporte/índice | `chamados` |
-| "A foto é do produto certo?" | `rag.py::verificar_identidade` (83) | `$vectorSearch` sem filtro de SKU, 30 resultados; decisão relativa feita em Python | `catalogo_fotos` |
+| "A foto é do produto certo?" | `rag.py::verificar_identidade` (147) | `$vectorSearch` só com o vetor da imagem, sem filtro de SKU, 30 resultados (+1 busca filtrada por sku se ele não aparecer); decisão relativa em `decidir_identidade` | `catalogo_fotos` |
 | Fila de revisão paginada | `main.py::chamados_pendentes` (728) | `find` + `sort(created_at,_id)` + cursor com `$or` | `chamados` |
 | Confirmar revisão (só um revisor vence) | `main.py::revisar` (787) | `update_one` com filtro `status: em_analise`; `find_one` para distinguir 404 e 409 | `chamados` |
 | Analytics | `main.py::analytics` (818) | 2x `aggregate [$group, $sort]` | `chamados` |
@@ -141,7 +141,7 @@ Nome dos índices (padrões em `config.py`): `defeitos_vector_index` (vetorial d
 - Adicionar uma rota -> `backend/main.py` (decorator `@app.get/post`; erro de negócio via `SafeQueryError`, o status por tipo está em `_STATUS_POR_KIND`) e um método novo em `frontend/src/api.js`.
 - Trocar modo da busca (híbrida x vetorial) -> `Portal.jsx:136` (constante `modo`); a lógica está em `backend/rag.py`.
 - Mudar a query de precedentes (pesos, `numCandidates`, filtro) -> `backend/rag.py::hybrid_search` / `vector_search` (`NUM_CANDIDATES`, `LIMIT` no topo do arquivo).
-- Regra de "foto do produto errado" -> `backend/rag.py` (`IDENTIDADE_THRESHOLD`, `IDENTIDADE_MARGEM_EMPATE`, função `verificar_identidade`).
+- Regra de "foto do produto errado" -> `backend/rag.py` (`IDENTIDADE_THRESHOLD`, `IDENTIDADE_MARGEM`, função pura `decidir_identidade`, consulta `verificar_identidade`); vetor só da imagem em `backend/voyage.py::embed_imagem`; testes em `backend/tests/test_identidade.py`; medição em `eval/run_quality.py`.
 - Prompt e formato do veredito do Claude -> `backend/llm.py` (`SYSTEM`, `VEREDITO_TOOL`, `_normalizar_veredito`); o teto de confiança sob suspeita de manipulação é `CONFIANCA_MAX_SOB_ALERTA`.
 - Categorias, itens de checklist e tipos de defeito -> `backend/defeitos_catalog.py` (`CATALOGO_DEFEITOS`); depois rode `seed_meta.py` para gravar no banco.
 - Pedidos e produtos de exemplo -> `backend/pedidos_data.py` e `backend/catalogo_produtos_data.py`.

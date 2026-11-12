@@ -199,14 +199,14 @@ chamados().aggregate(pipeline, maxTimeMS=config.MAX_TIME_MS)
 
 **Por que `queryVector` pré-computado (Caminho B):** o embedding é calculado no backend (Voyage) antes da agregação, não via `$vectorSearch` com texto bruto — dá controle total sobre o modelo/dimensão de embedding e evita acoplar a query ao Atlas fazendo embedding server-side.
 
-### 13. Verificação de identidade do produto — `verificar_identidade` (`rag.py:83-156`)
+### 13. Verificação de identidade do produto — `verificar_identidade` (`rag.py`, regra em `decidir_identidade`)
 
 ```python
 pipeline = [
     {"$vectorSearch": {
         "index": config.CATALOGO_FOTOS_VECTOR_INDEX,  # catalogo_fotos_vector_index
         "path": "embedding",
-        "queryVector": query_vector,
+        "queryVector": ident_vector,   # voyage.embed_imagem: SÓ a imagem, sem a frase
         "numCandidates": 150,
         "limit": 30,
         # SEM filtro de sku — compara contra TODO o catálogo de propósito
@@ -215,17 +215,27 @@ pipeline = [
     {"$project": {"embedding": 0}},
 ]
 catalogo_fotos().aggregate(pipeline, maxTimeMS=config.MAX_TIME_MS)
+# só se o SKU do pedido não estiver entre os 30: a mesma busca com "filter": {"sku": sku}, "limit": 1
+# (o índice tem sku como campo de filtro). Vazio = SKU sem foto de referência.
 ```
 
-**O que faz:** responde "essa foto é do produto certo?" — separado de "tem defeito?" (isso é papel exclusivo do Claude). Compara a foto do cliente contra as fotos de referência de **todos** os SKUs do catálogo, não só do SKU reivindicado.
+**O que faz:** responde "essa foto é do produto do pedido?" — separado de "tem defeito?" (papel do Claude). Compara a foto com as fotos de referência de **todos** os SKUs, não só do SKU reivindicado.
 
-**Por que o critério é relativo, não um threshold absoluto (medido, não chutado):** um threshold absoluto sozinho não funciona — fotos de produto em estúdio (fundo branco, mesma iluminação) fazem qualquer par de móveis pontuar alto no embedding multimodal (a métrica capta "isso é foto de produto de mobília", não a identidade fina do item). Uma cadeira de plástico comparada contra o SKU de uma cadeira gamer já pontuou **0.83** — perigosamente perto da faixa "mesmo produto" (~0.92–0.94) medida antes. Por isso:
+**Por que só a imagem:** o vetor da busca de precedentes leva a frase do chamado, que nomeia o produto reivindicado. Medido em 2026-11-12, esse texto puxa o score para o SKU do pedido: a foto do guarda-roupa de 6 portas num pedido do de 3 portas ficava 0,8601 × 0,8597 e a foto de uma cadeira num pedido de colchão chegou a "ganhar" como colchão (0,813 × 0,809). Na identidade a alegação não pode entrar na evidência.
 
-1. Agrupa o melhor score por SKU entre os 30 candidatos retornados.
-2. O SKU reivindicado precisa ser o **melhor match entre todos** (ou empatar dentro de `IDENTIDADE_MARGEM_EMPATE = 0.01`).
-3. `IDENTIDADE_THRESHOLD = 0.80` é só o piso — backstop para o caso raro do produto não ter parente nenhum no catálogo.
+**Por que relativo:** fotos de produto em estúdio pontuam alto entre si (com só a imagem, o pior par de categorias diferentes medido foi 0,73; o de variantes da mesma categoria, 0,823). O SKU do pedido é comparado com o melhor **outro** SKU do catálogo: `margem = score_pedido − score_concorrente`.
 
-Quando o score cai abaixo do threshold OU dentro da margem de empate, loga `WARNING` com `identidade_metrica` (score_sku, top_score, sku, top_sku, categoria) — instrumentação mínima de deriva desses limiares (calibrados com uma amostra anedótica, sem pipeline de validação formal ainda).
+| Condição | `status` |
+|---|---|
+| SKU do pedido sem foto em `catalogo_fotos` | `sem_referencia` (revisão humana; nunca `divergente` por falta de foto) |
+| `margem <= −IDENTIDADE_MARGEM` (0,02) | `divergente` |
+| `|margem| < 0,02` | `inconclusivo` — empate técnico, típico de variante da mesma categoria; nunca `aprovado` |
+| `margem >= 0,02` e `score < IDENTIDADE_THRESHOLD` (0,80) | `inconclusivo` — é o mais parecido, mas pouco parecido com tudo |
+| senão | `aprovado` |
+
+A resposta traz `status`, `motivo`, `score`, `concorrente_sku`, `concorrente_score`, `margem`, `top_sku`, `top_score` e `abaixo_threshold` (compatibilidade: `status != "aprovado"`). O chamado guarda também `status_chamado`/`motivo_chamado`, o pior status entre a foto principal e as extras.
+
+**Medição (2026-11-12, `eval/run_quality.py`, gabarito rascunho):** matriz completa das 5 fotos de demo versionadas × 6 SKUs (30 casos: 5 legítimos, 4 de variante da mesma categoria, 16 de outra categoria, 5 de SKU sem foto). Foto certa: 0,839–0,912; menor margem legítima +0,035 (foto do 3 portas contra o 6 portas). `IDENTIDADE_MARGEM` = 0,02 fica abaixo dela; o piso 0,80 fica entre o pior acerto (0,839) e o pior SKU de outra categoria (0,73). Resultado: acerto 1,0, falsa aceitação 0, falsa rejeição 0. A regra antiga (frase no vetor, margem de empate 0,01) nos mesmos 30 casos: acerto 0,767, falsa aceitação 0,08 (2 de 25: 6 portas pedido como 3 portas e foto do 3 portas pedida como colchão) e os 5 casos sem foto marcados `divergente`. A amostra é pequena (5 fotos): mudar limiar exige rodar o eval; a deriva em produção aparece no WARNING `identidade_metrica` (status, scores, margem, SKUs).
 
 ### 14. Busca híbrida — `hybrid_search` via `$rankFusion` (`rag.py:159-228`)
 

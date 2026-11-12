@@ -215,6 +215,9 @@ async def analisar_veredito(
 ) -> dict:
     """Chama o Claude (via Grove) com visão e tool use forçado; retorna o veredito estruturado.
 
+    Resposta sem bloco `emitir_veredito` (possível quando o grove_client cai para
+    tool_choice=auto) vira `manual_review_fallback` com `fallback_motivo="sem_tool_use"`.
+
     `frase_analise` deve chegar já com PII mascarada. `imagens_extra` são fotos
     adicionais por item de checklist (bytes, media_type, rótulo do item), enviadas
     junto da foto principal. `alerta_texto` é o resultado de
@@ -277,6 +280,17 @@ async def analisar_veredito(
     observability.metrics.bump("anthropic_cache_write_tokens", getattr(usage, "cache_creation_input_tokens", 0) or 0)
 
     tool_input = next((b.input for b in resp.content if b.type == "tool_use"), None)
+    if not isinstance(tool_input, dict):
+        # Modelos que recusam tool_choice forçado (400, ex.: claude-sonnet-5-5) são
+        # repetidos pelo grove_client (>= 0.3.1) em tool_choice=auto + instrução no
+        # system; aí o modelo pode responder só texto. Falha explícita: o caso vai
+        # para revisão humana com motivo, nunca um veredito inventado.
+        logger.warning(
+            "Claude respondeu sem emitir_veredito (stop_reason=%s); preserving case for human review",
+            getattr(resp, "stop_reason", None),
+        )
+        observability.metrics.bump("verdict_sem_tool_use")
+        return _fallback(start, precedentes, alerta_texto, "sem_tool_use")
     return _normalizar_veredito(tool_input, meta={
         "model": resp.model,
         "mode": "claude_tool_use",
