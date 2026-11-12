@@ -125,7 +125,7 @@ backend/.venv/bin/python eval/run_quality.py --secoes veredito --out /tmp/warran
 
 ## Resilience and observability (on by default)
 
-- **Reranking:** if the `$rerank` stage fails (stage unavailable, Voyage down, quota), the same search runs without it and the UI says so; connection errors still surface. The query text sent to the reranker is the PII-masked phrase. `RERANK_MODEL` (default `rerank-2.5-lite`; empty disables) selects the model.
+- **Reranking:** if MongoDB rejects the aggregation with `$rerank` (stage unavailable, Voyage down, quota), the same search runs without it and the UI shows the reason; timeouts, missing indexes and connection errors still surface without re-running the query. The query text sent to the reranker is the PII-masked phrase. `RERANK_MODEL` (default `rerank-2.5-lite`; empty disables) selects the model.
 
 - **LLM:** `_shared/grove_client.AsyncGroveClient` (Bearer + real key in `x-api-key`), retries with jitter on 429/5xx/timeouts, circuit breaker and optional model fallback, plus a total deadline (`LLM_DEADLINE_SECONDS`, 90 s). If the gateway still fails, the case is kept with an `inconclusivo` manual-review verdict instead of an error. There is no direct-provider fallback.
 - **Voyage:** 30 s timeout, 3 attempts with exponential backoff, total deadline per embedding.

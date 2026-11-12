@@ -67,13 +67,13 @@ Todas as chamadas do front passam por `frontend/src/api.js` (objeto `api`, a par
 | Foto principal | `Portal.jsx:398` (`onFile`, linha 251) | nenhuma (só estado local) | n/a | n/a | n/a |
 | **Analisar defeito** | `Portal.jsx:409` -> `analisar` (`Portal.jsx:258`) | `POST /api/analisar` (multipart; `modo` é fixo `hybrid`, `Portal.jsx:137`) | `main.py:465` `analisar` | `main.py::_processar_analise` (`main.py:525`), que chama `rag.verificar_identidade`, `rag.hybrid_search`, `llm.analisar_veredito` | ver tabela da seção 3 (idempotência, 2 buscas Atlas, insert e update de `chamados`) |
 | Novo chamado | `Portal.jsx:349` -> `reiniciar` (`Portal.jsx:295`) | nenhuma | n/a | n/a | n/a |
-| Aba Revisar: carga inicial e "Atualizar" | `Revisao.jsx:141` -> `carregar` (`Revisao.jsx:30`) | `GET /api/chamados/pendentes` | `main.py:742` `chamados_pendentes` | a própria rota | `main.py::chamados_pendentes` (`find` paginado por cursor + `_counts_por_status`, `chamados`) |
+| Aba Revisar: carga inicial e "Atualizar" | `Revisao.jsx:141` -> `carregar` (`Revisao.jsx:30`) | `GET /api/chamados/pendentes` | `main.py:743` `chamados_pendentes` | a própria rota | `main.py::chamados_pendentes` (`find` paginado por cursor + `_counts_por_status`, `chamados`) |
 | "Carregar mais" | `Revisao.jsx:177` -> `carregarMais` (`Revisao.jsx:51`) | `GET /api/chamados/pendentes?before_created_at=..&before_id=..` | idem | idem | idem |
-| Fila ao vivo (badge "live") | `Revisao.jsx:88` (`new EventSource`) | `GET /api/chamados/stream` (SSE) | `main.py:858` `chamados_stream` | gerador `_gen` dentro da rota | `main.py::chamados_stream` (`chamados().watch`, Change Stream) |
+| Fila ao vivo (badge "live") | `Revisao.jsx:88` (`new EventSource`) | `GET /api/chamados/stream` (SSE) | `main.py:859` `chamados_stream` | gerador `_gen` dentro da rota | `main.py::chamados_stream` (`chamados().watch`, Change Stream) |
 | Selecionar um chamado da fila | `Revisao.jsx:164` -> `selecionar` (`Revisao.jsx:101`) | nenhuma (usa o doc já carregado) | n/a | n/a | n/a |
-| **Confirmar** resolução | `Revisao.jsx:208` -> `confirmar` (`Revisao.jsx:108`) | `POST /api/revisar` | `main.py:801` `revisar` | a própria rota | `main.py::revisar` (`update_one` filtrando `status: em_analise`, depois `find_one`; `chamados`) |
+| **Confirmar** resolução | `Revisao.jsx:208` -> `confirmar` (`Revisao.jsx:108`) | `POST /api/revisar` | `main.py:802` `revisar` | a própria rota | `main.py::revisar` (`update_one` filtrando `status: em_analise`, depois `find_one`; `chamados`) |
 
-Sem botão na UI (só por API): `GET /api/analytics` (`main.py:832`, agregações para Atlas Charts), `GET /api/metrics` (`main.py:105`), `GET /metrics` (`main.py:111`, formato Prometheus), `GET /health/live` (`main.py:163`).
+Sem botão na UI (só por API): `GET /api/analytics` (`main.py:833`, agregações para Atlas Charts), `GET /api/metrics` (`main.py:105`), `GET /metrics` (`main.py:111`, formato Prometheus), `GET /health/live` (`main.py:163`).
 
 ### O que o `POST /api/analisar` faz, em ordem (para explicar em call)
 
@@ -83,7 +83,7 @@ Sem botão na UI (só por API): `GET /api/analytics` (`main.py:832`, agregaçõe
 4. Embedding multimodal (`voyage.py::embed_multimodal`, via `main.py::_embed`).
 5. Em paralelo: `rag.verificar_identidade` (a foto é do SKU certo?) e `rag.hybrid_search` (precedentes).
 6. `llm.py::analisar_veredito` (Claude, tool `emitir_veredito`). Se o gateway falhar, devolve o veredito "inconclusivo" de revisão manual.
-7. Insert do chamado já com o veredito (`_inserir_chamado_com_retry`, status `veredito_pronto_aguardando_upload`), espera o upload e faz o update para `em_analise` com a medição `persistencia` (`main.py:706`).
+7. Insert do chamado já com o veredito (`_inserir_chamado_com_retry`, status `veredito_pronto_aguardando_upload`), espera o upload e faz o update para `em_analise` com a medição `persistencia` (`main.py:707`).
 
 ## 3. Onde estão as queries MongoDB
 
@@ -99,7 +99,7 @@ Detalhe e exemplos em [briefing/queries.md](briefing/queries.md). Collections: `
 | Achar chamado idêntico na janela de 60 s | `main.py::_buscar_chamado_idempotente` (347) | `find_one` por `idempotency_hash` + `created_at` | `chamados` |
 | Reservar / retomar / liberar trava de idempotência | `main.py::_reservar_idempotencia` (363), `_liberar_idempotencia` (395), `_aguardar_chamado_concorrente` (403) | `insert_one` (`_id` = hash), `update_one`, `delete_one`, `find_one`; TTL em `expires_at` | `idempotencia` |
 | Gravar o chamado com veredito | `main.py::_inserir_chamado_com_retry` (326) | `insert_one` com retry em chave duplicada | `chamados` |
-| Promover o chamado a `em_analise` (upload concluído) | `main.py::_processar_analise` (update em `main.py:706`) | `update_one $set` | `chamados` |
+| Promover o chamado a `em_analise` (upload concluído) | `main.py::_processar_analise` (update em `main.py:707`) | `update_one $set` | `chamados` |
 | Precedentes, modo vetorial | `backend/rag.py::vector_search` (51) | `$vectorSearch` (filtro `categoria` + `status: resolvido`) + `$addFields` + `$project` | `chamados` |
 | Precedentes, modo híbrido (o que a UI usa) | `rag.py::hybrid_search` (159) | `$rankFusion` com `$vectorSearch` + `$search` (`compound`), pesos 0,7/0,3; cai para `vector_search` se faltar suporte/índice | `chamados` |
 | "A foto é do produto certo?" | `rag.py::verificar_identidade` (147) | `$vectorSearch` só com o vetor da imagem, sem filtro de SKU, 30 resultados (+1 busca filtrada por sku se ele não aparecer); decisão relativa em `decidir_identidade` | `catalogo_fotos` |

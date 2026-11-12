@@ -623,7 +623,8 @@ async def _processar_analise(
                      output_data={"precedentes": len(precedentes), "identidade_score": identidade.get("score"),
                                   "identidade_abaixo_threshold": identidade["abaixo_threshold"],
                                   "identidade_status": identidade["status_chamado"]},
-                     metadata={"modo": funnel.get("modo"), "latency_ms": funnel["latency_ms"]})
+                     metadata={"modo": funnel.get("modo"), "latency_ms": funnel["latency_ms"],
+                               "rerank": funnel.get("rerank")})
 
     imagens_extra_veredito = [
         (jpeg_bytes, media_type, item)

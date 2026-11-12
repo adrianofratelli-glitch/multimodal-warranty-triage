@@ -10,9 +10,10 @@ import PipelineSteps from '../components/PipelineSteps.jsx';
 import VeredictoCard from '../components/VeredictoCard.jsx';
 import QueryDetails from '../components/QueryDetails.jsx';
 import { api } from '../api.js';
-import { grauMatch, rotuloBusca, rotuloRerank } from '../lib/triagem.js';
+import { grauMatch, rotuloBusca, rotuloPassoBusca, rotuloRerank } from '../lib/triagem.js';
 
-const STEPS = ['Compor frase', 'Guardar foto (storage)', 'Embed multimodal (Voyage AI)', 'Verificar identidade do produto ($vectorSearch)', 'Busca de precedentes (Atlas $rankFusion + $rerank)', 'Classificar causa provável', 'Gravar chamado (Atlas)'];
+// O título do passo 5 é montado de funnel.modo/funnel.rerank (rotuloPassoBusca).
+const STEPS = ['Compor frase', 'Guardar foto (storage)', 'Embed multimodal (Voyage AI)', 'Verificar identidade do produto ($vectorSearch)', 'Busca de precedentes', 'Classificar causa provável', 'Gravar chamado (Atlas)'];
 
 // O que cada etapa faz no MongoDB — mostrado sempre no pipeline (não só quando
 // concluída), pra deixar explícito onde o Atlas entra em cada passo, não só no
@@ -302,7 +303,9 @@ export default function Portal({ state, setState }) {
     setState({ resultado: null, step: 0 });
   };
 
-  const steps = STEPS.map((title, i) => ({ key: title, index: i + 1, title, status: pipe[i], runningLabel: 'processando…', detail: STEP_DETAILS[i], content: null }));
+  const PASSO_BUSCA = 4;
+  const steps = STEPS.map((base, i) => ({ key: base, index: i + 1,
+    title: i === PASSO_BUSCA ? rotuloPassoBusca(resultado?.funnel, modo) : base, status: pipe[i], runningLabel: 'processando…', detail: STEP_DETAILS[i], content: null }));
 
   return (
     <div className="stack">
@@ -515,6 +518,11 @@ export default function Portal({ state, setState }) {
               </Badge>
             )}
           </div>
+          {rotuloRerank(resultado.funnel?.rerank)?.falhou && (
+            <Banner variant="warning" darkMode style={{ marginBottom: 10 }}>
+              $rerank indisponível nesta busca — precedentes na ordem da recuperação. Motivo: {resultado.funnel.rerank.motivo}
+            </Banner>
+          )}
           {resultado.funnel?.modo === 'vector_fallback' && (
             <Banner variant="warning" darkMode style={{ marginBottom: 10 }}>
               $rankFusion indisponível neste cluster — degradou para $vectorSearch automaticamente.

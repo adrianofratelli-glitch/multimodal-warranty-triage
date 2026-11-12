@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { confiancaPct, grauConfianca, grauMatch, rotuloBusca, rotuloRerank, statusIdentidade } from '../src/lib/triagem.js'
+import { confiancaPct, grauConfianca, grauMatch, rotuloBusca, rotuloPassoBusca, rotuloRerank, statusIdentidade } from '../src/lib/triagem.js'
 
 test('grauConfianca: faixas <40 baixa, 40-69 moderada, >=70 alta', () => {
   assert.equal(grauConfianca(0).txt, 'confiança baixa')
@@ -52,4 +52,12 @@ test('rotuloRerank: aplicado mostra o modelo; falha avisa; desligado/antigo não
   assert.equal(falha.variant, 'yellow')
   assert.equal(rotuloRerank({ aplicado: false, motivo: 'desligado' }), null)
   assert.equal(rotuloRerank(undefined), null)
+})
+
+test('rotuloPassoBusca: título do passo segue funnel.modo e funnel.rerank', () => {
+  assert.equal(rotuloPassoBusca(undefined, 'hybrid'), 'Busca de precedentes (Atlas $rankFusion + $rerank)')
+  assert.equal(rotuloPassoBusca({ modo: 'hybrid', rerank: { aplicado: true } }), 'Busca de precedentes (Atlas $rankFusion + $rerank)')
+  assert.equal(rotuloPassoBusca({ modo: 'hybrid', rerank: { aplicado: false, motivo: 'x' } }), 'Busca de precedentes (Atlas $rankFusion)')
+  assert.equal(rotuloPassoBusca({ modo: 'vector_fallback', rerank: { aplicado: true } }), 'Busca de precedentes (Atlas $vectorSearch — fallback + $rerank)')
+  assert.equal(rotuloPassoBusca({ modo: 'idempotent_replay' }), 'Busca de precedentes (não repetida: envio idêntico)')
 })

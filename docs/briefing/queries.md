@@ -287,7 +287,7 @@ pipeline = [
 
 **O que faz:** reordena o top 5 de #12 ou #14 pela relevância entre a frase do chamado (com PII mascarada, porque o texto sai do cluster para a Voyage) e a `frase_analise` de cada precedente. O score anterior fica em `score_recuperacao`; `score` passa a ser o do reranker (0-1).
 
-**Degradação:** se a agregação com `$rerank` falhar por qualquer motivo que não seja conexão, a mesma busca roda sem o estágio e `funnel.rerank = {"aplicado": false, "motivo": ...}`; a UI mostra o aviso e o pipeline que de fato rodou. `RERANK_MODEL=` vazio desliga.
+**Degradação:** só quando o MongoDB rejeita a agregação com `$rerank` (`SafeQueryError.kind == "operacao"`: estágio desconhecido, Voyage fora, cota) a mesma busca roda sem o estágio e `funnel.rerank = {"aplicado": false, "motivo": ...}`; a UI mostra o aviso com o motivo e o pipeline que de fato rodou. `timeout`, `search`, `indice` e `conexao` sobem sem repetir a consulta (na híbrida, `search`/`indice` seguem para o fallback vetorial de #14). `RERANK_MODEL=` vazio desliga.
 
 **Medição (2026-11-12, `eval/run_quality.py`, 20 consultas, corpus do seed):** recall@1 0,95 → 1,0 e MRR 0,975 → 1,0 em vetor e híbrido (um caso, o R20, subiu de 2º para 1º); +~190 ms p50 na agregação. Detalhe e motivo de não quantizar em `docs/adr/0004-rerank-precedentes.md`.
 

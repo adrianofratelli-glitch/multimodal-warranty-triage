@@ -2,7 +2,8 @@
 
 O estágio é medido no eval (eval/run_quality.py). Aqui fica o contrato: o pipeline
 é o que roda e o que a UI mostra; falha do $rerank degrada para a mesma busca sem
-rerank (funnel explica); erro de conexão não é mascarado; a busca híbrida que cai
+rerank (funnel explica) só em erro `operacao`; timeout/search/indice/conexão sobem
+sem repetir a consulta; a busca híbrida que cai
 para vetorial continua reranqueando.
 """
 
@@ -93,11 +94,19 @@ def test_falha_do_rerank_degrada_para_busca_sem_rerank(col):
     assert not _tem_rerank(funnel["query_details"]["pipeline"])  # UI mostra o que de fato rodou
 
 
-def test_erro_de_conexao_nao_e_mascarado_pelo_fallback(col):
-    col.falhas = lambda p: SafeQueryError("conexao", "cluster fora")
+@pytest.mark.parametrize("kind", ["conexao", "timeout", "search", "indice"])
+def test_erro_de_infra_ou_indice_sobe_sem_repetir_a_consulta(col, kind):
+    col.falhas = lambda p: SafeQueryError(kind, "falha")
     with pytest.raises(SafeQueryError) as e:
         asyncio.run(rag.vector_search([0.1] * 4, "cadeira", texto_rerank="x"))
-    assert e.value.kind == "conexao" and len(col.pipelines) == 1
+    assert e.value.kind == kind and len(col.pipelines) == 1
+
+
+def test_hybrid_sem_indice_de_texto_cai_para_vetorial_sem_repetir_o_hibrido(col):
+    col.falhas = lambda p: SafeQueryError("search", "index not found") if "$rankFusion" in p[0] else None
+    _, funnel = asyncio.run(rag.hybrid_search([0.1] * 4, "frase", "cadeira", texto_rerank="x"))
+    assert funnel["modo"] == "vector_fallback" and funnel["rerank"]["aplicado"] is True
+    assert ["$rankFusion" in p[0] for p in col.pipelines] == [True, False]
 
 
 def test_hybrid_reranqueia_depois_do_rankfusion(col):
@@ -116,3 +125,13 @@ def test_hybrid_sem_rankfusion_cai_para_vetorial_e_mantem_rerank(col):
     assert funnel["modo"] == "vector_fallback"
     assert funnel["rerank"]["aplicado"] is True
     assert _tem_rerank(col.pipelines[-1]) and "$vectorSearch" in col.pipelines[-1][0]
+
+
+def test_motivo_do_fallback_nao_expoe_namespace(col):
+    msg = ("Operação rejeitada pelo MongoDB: Executor error during aggregate command on namespace: "
+           "banco_cliente.chamados :: caused by :: Voyage API error: HttpError")
+    col.falhas = lambda p: SafeQueryError("operacao", msg) if _tem_rerank(p) else None
+    _, funnel = asyncio.run(rag.vector_search([0.1] * 4, "cadeira", texto_rerank="x"))
+    assert funnel["rerank"]["motivo"] == "Voyage API error: HttpError"
+    assert rag._motivo_curto("Erro sem causa encadeada") == "Erro sem causa encadeada"
+    assert "banco_cliente" not in rag._motivo_curto("Operação rejeitada: falha on namespace: banco_cliente.chamados")

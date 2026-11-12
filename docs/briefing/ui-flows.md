@@ -50,7 +50,7 @@ Um dropdown de "Cenário" carrega de uma vez pedido + produto + checklist + desc
 
 ### Painel de precedentes (fim de `Portal.jsx`)
 
-Mostra o `funnel` (quantos candidatos, filtro aplicado, quantos retornaram, modo — `$rankFusion`/`$vectorSearch`/fallback), os pesos vetorial/textual quando é híbrido, o badge "reordenado por $rerank (modelo)" ou o aviso "$rerank indisponível" (`funnel.rerank`), e um badge de "match forte/moderado/fraco" **relativo ao melhor score da própria busca** (com `$rerank` o score é a relevância do reranker; sem ele, o RRF do `$rankFusion`, sempre baixo em módulo). As regras de rótulo (`grauMatch`, `rotuloBusca`, `rotuloRerank`, `grauConfianca`, `statusIdentidade`) ficam em `frontend/src/lib/triagem.js`, testadas em `frontend/tests/triagem.test.mjs`.
+Mostra o `funnel` (quantos candidatos, filtro aplicado, quantos retornaram, modo — `$rankFusion`/`$vectorSearch`/fallback), os pesos vetorial/textual quando é híbrido, o badge "reordenado por $rerank (modelo)" ou o aviso "$rerank indisponível" com um Banner que traz o motivo (`funnel.rerank`), e um badge de "match forte/moderado/fraco" **relativo ao melhor score da própria busca** (com `$rerank` o score é a relevância do reranker; sem ele, o RRF do `$rankFusion`, sempre baixo em módulo). As regras de rótulo (`grauMatch`, `rotuloBusca`, `rotuloRerank`, `rotuloPassoBusca` — título do passo 5 do pipeline a partir de `funnel.modo`/`funnel.rerank` —, `grauConfianca`, `statusIdentidade`) ficam em `frontend/src/lib/triagem.js`, testadas em `frontend/tests/triagem.test.mjs`.
 
 ## Aba 2 — Revisão (`frontend/src/tabs/Revisao.jsx`)
 

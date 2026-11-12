@@ -64,3 +64,17 @@ export function rotuloRerank(rerank) {
   }
   return null;
 }
+
+/**
+ * Título do passo "Busca de precedentes" a partir do que o backend devolveu
+ * (funnel.modo e funnel.rerank). Antes da resposta, descreve o caminho pedido
+ * com o $rerank padrão; depois, só o que de fato rodou.
+ */
+export function rotuloPassoBusca(funnel, modoPedido = 'hybrid') {
+  if (!funnel) {
+    return `Busca de precedentes (Atlas ${modoPedido === 'hybrid' ? '$rankFusion' : '$vectorSearch'} + $rerank)`;
+  }
+  if (funnel.modo === 'idempotent_replay') return 'Busca de precedentes (não repetida: envio idêntico)';
+  const rerank = funnel.rerank?.aplicado ? ' + $rerank' : '';
+  return `Busca de precedentes (Atlas ${rotuloBusca(funnel.modo)}${rerank})`;
+}

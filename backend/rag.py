@@ -131,11 +131,21 @@ def _estagios_rerank(texto: str, meta_anterior: str) -> list[dict]:
     ]
 
 
+def _motivo_curto(mensagem: str) -> str:
+    """Causa final do erro do servidor, para a UI: o prefixo traz o namespace
+    (`<banco>.chamados`), e o nome do banco não deve aparecer na tela da demo."""
+    causa = mensagem.rsplit(":: caused by ::", 1)[-1].strip()
+    return (causa if causa != mensagem.strip() else mensagem.split(" on namespace")[0]).strip()[:160]
+
+
 async def _executar(base: list[dict], meta_score: str, texto_rerank: str | None) -> tuple[list[dict], list[dict], dict]:
     """Roda `base` (+ $rerank quando há texto e modelo). Devolve (docs, pipeline, rerank_info).
 
-    Falha do $rerank (estágio indisponível, Voyage fora, cota) não derruba a busca:
-    a mesma consulta roda sem rerank e `rerank_info` explica. Erro de conexão sobe.
+    Só erro `operacao` (o MongoDB rejeitou a agregação: estágio $rerank desconhecido,
+    Voyage fora, cota) degrada: a mesma consulta roda sem rerank e `rerank_info`
+    explica. `timeout`, `search`, `indice` e `conexao` sobem sem repetir a consulta
+    (infra ou índice ausente: repetir só dobraria a espera; o híbrido trata os dois
+    últimos caindo para vetorial).
     """
     sem_rerank = [*base, {"$addFields": {"score": {"$meta": meta_score}}}, {"$project": _PROJECT}]
     if not (texto_rerank and config.RERANK_MODEL):
@@ -146,11 +156,11 @@ async def _executar(base: list[dict], meta_score: str, texto_rerank: str | None)
         docs = await safe_query(chamados().aggregate(com_rerank, maxTimeMS=config.MAX_TIME_MS).to_list(length=LIMIT))
         return docs, com_rerank, {"aplicado": True, "modelo": config.RERANK_MODEL}
     except SafeQueryError as e:
-        if e.kind == "conexao":
+        if e.kind != "operacao":
             raise
-        logger.warning("rerank_fallback kind=%s motivo=%s", e.kind, e.message[:160])
+        logger.warning("rerank_fallback kind=%s motivo=%s", e.kind, e.message[:300])
         docs = await safe_query(chamados().aggregate(sem_rerank, maxTimeMS=config.MAX_TIME_MS).to_list(length=LIMIT))
-        return docs, sem_rerank, {"aplicado": False, "motivo": e.message[:160]}
+        return docs, sem_rerank, {"aplicado": False, "motivo": _motivo_curto(e.message)}
 
 
 async def vector_search(query_vector: list[float], categoria: str, texto_rerank: str | None = None) -> tuple[list[dict], dict]:

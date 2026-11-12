@@ -10,7 +10,7 @@ Os precedentes recuperados alimentam o Claude, e o primeiro é o que o modelo ma
 ## Decisão
 
 1. **`$rerank` no fim de `vector_search` e `hybrid_search`**, sobre `frase_analise` do top 5, com `query.text` = a frase do chamado **com PII mascarada** (o texto sai do cluster para a Voyage). O score da recuperação é guardado em `score_recuperacao` antes do estágio (o `$rerank` substitui `$meta: "score"`); `$set` garante `frase_analise` string para não quebrar o estágio.
-2. **Degradação, não flag:** se o `$rerank` falhar (estágio indisponível, Voyage fora, cota), a mesma busca roda sem rerank e `funnel.rerank` diz o motivo; erro de conexão sobe normal. `RERANK_MODEL=` vazio desliga (só para reverter).
+2. **Degradação, não flag:** se o MongoDB rejeitar a agregação com `$rerank` (erro `operacao`: estágio indisponível, Voyage fora, cota), a mesma busca roda sem rerank e `funnel.rerank` diz o motivo; `timeout`, `search`, `indice` e `conexao` sobem sem repetir a consulta (repetir só dobraria a espera). `RERANK_MODEL=` vazio desliga (só para reverter).
 3. **Modelo `rerank-2.5-lite`**: mesmo resultado que `rerank-2.5` no eval, menor custo.
 4. **Sem quantização** (`scalar`/`binary`) nos índices por ora.
 
@@ -32,5 +32,5 @@ Com 15 precedentes e 14 fotos de catálogo não há RAM a economizar, e a regra 
 ## Consequências
 
 - O reranker lê só texto (`frase_analise`); a imagem entra na recuperação pelo vetor, não no rerank.
-- A UI mostra o badge "reordenado por $rerank (modelo)" ou o aviso de indisponível, e o pipeline exibido é o que rodou.
+- A UI mostra o badge "reordenado por $rerank (modelo)" ou o aviso de indisponível com o motivo, o título do passo de busca segue `funnel.modo`/`funnel.rerank`, e o pipeline exibido é o que rodou. O span `atlas_vector_search` do Langfuse leva `rerank` no metadata.
 - Com o `$rerank` o `score` dos precedentes é relevância do reranker (0-1), não RRF; o grau de match continua relativo ao topo (`frontend/src/lib/triagem.js`).
