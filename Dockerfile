@@ -23,7 +23,8 @@ COPY --from=shared . /opt/pov-shared
 RUN pip install --no-cache-dir "/opt/pov-shared[llm]"
 
 COPY backend/ ./backend/
-COPY seed_images/ ./seed_images/
+# seed_images/ não vai na imagem (não é versionado; só os scripts de carga usam). Para semear de dentro do
+# container, monte: -v "$PWD/seed_images:/app/seed_images:ro".
 COPY --from=frontend-build /build/dist ./frontend/dist
 COPY nginx.conf /etc/nginx/nginx.conf
 COPY docker/start.sh /start.sh
