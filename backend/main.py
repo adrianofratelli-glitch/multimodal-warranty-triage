@@ -591,10 +591,11 @@ async def _processar_analise(
     # Identidade e precedentes são consultas independentes sobre o mesmo vetor.
     # Identidade roda pra foto principal E pra cada foto extra — o mais restritivo
     # vence (se qualquer foto divergir do SKU, o chamado inteiro fica sinalizado).
+    # $rerank recebe a frase com PII mascarada: o texto sai do cluster para a Voyage.
     if modo == "hybrid":
-        busca = rag.hybrid_search(query_vector, frase, categoria)
+        busca = rag.hybrid_search(query_vector, frase, categoria, texto_rerank=frase_mascarada)
     else:
-        busca = rag.vector_search(query_vector, categoria)
+        busca = rag.vector_search(query_vector, categoria, texto_rerank=frase_mascarada)
     t_busca = time.perf_counter()
     try:
         identidade_principal, *identidades_extra, (precedentes, funnel) = await asyncio.gather(

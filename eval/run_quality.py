@@ -2,7 +2,7 @@
 """Eval de qualidade da triagem: busca de precedentes, checagem de identidade e (opcional) veredito.
 
 Mede o caminho real do backend (`voyage.embed_multimodal` com input_type="query", `rag.vector_search`,
-`rag.hybrid_search` e `rag.verificar_identidade`) contra o gabarito `eval/gabarito_qualidade.json`
+`rag.hybrid_search` com o mesmo `$rerank` do /api/analisar (texto com PII mascarada) e `rag.verificar_identidade`) contra o gabarito `eval/gabarito_qualidade.json`
 (validado pelo usuário em 2026-11-12, derivado do seed). Só LÊ o banco configurado no `.env` (agregações de busca); não grava nada.
 
     backend/.venv/bin/python eval/run_quality.py --out /tmp/warranty_quality.json
@@ -168,6 +168,7 @@ async def _run(secoes: list[str], gab: dict) -> dict:
     import rag
     from db import chamados
     from defeitos_catalog import compor_frase
+    from guardrails_triagem import mascarar_pii
     from voyage import embed_multimodal
 
     out: dict = {"erros_gabarito": validar_gabarito(gab, produtos, catalogo, seed_ids), "casos": []}
@@ -194,15 +195,18 @@ async def _run(secoes: list[str], gab: dict) -> dict:
     if "busca" in secoes:
         ranks: dict[str, list] = {"vector": [], "hybrid": []}
         fallback_hibrido = 0
+        rerank_aplicado = 0
         for c in gab["busca"]:
             frase, cat = frase_de(c["sku"], c["checklist"], c["descricao"])
             row = {"secao": "busca", "id": c["id"], "relevantes": c["relevantes"]}
             try:
                 qv = await embed(frase, c["imagem"])
-                docs_v, _ = await rag.vector_search(qv, cat)
-                docs_h, funnel_h = await rag.hybrid_search(qv, frase, cat)
+                # mesmo caminho do /api/analisar: $rerank com a frase mascarada
+                docs_v, funnel_v = await rag.vector_search(qv, cat, texto_rerank=mascarar_pii(frase))
+                docs_h, funnel_h = await rag.hybrid_search(qv, frase, cat, texto_rerank=mascarar_pii(frase))
                 if funnel_h.get("modo") != "hybrid":
                     fallback_hibrido += 1
+                rerank_aplicado += sum(1 for f in (funnel_v, funnel_h) if f.get("rerank", {}).get("aplicado"))
                 for modo, docs in (("vector", docs_v), ("hybrid", docs_h)):
                     ranking = [d["numero_chamado"] for d in docs]
                     r = rank_of(ranking, c["relevantes"])
@@ -216,6 +220,7 @@ async def _run(secoes: list[str], gab: dict) -> dict:
             out["casos"].append(row)
         out["busca"] = {m: retrieval_metrics(v) for m, v in ranks.items()}
         out["busca"]["hybrid_fallback"] = fallback_hibrido
+        out["busca"]["rerank_aplicado"] = rerank_aplicado  # de 2 x n buscas
 
     if "identidade" in secoes:
         from voyage import embed_imagem
@@ -246,7 +251,6 @@ async def _run(secoes: list[str], gab: dict) -> dict:
         out["embeddings_voyage_imagem"] = len(cache_img)
 
     if "veredito" in secoes:
-        from guardrails_triagem import mascarar_pii
         from llm import MODEL, analisar_veredito
 
         validos = aceitos = 0
@@ -256,7 +260,7 @@ async def _run(secoes: list[str], gab: dict) -> dict:
             row = {"secao": "veredito", "id": c["id"], "aceitaveis": c["llm"]["aceitaveis"]}
             try:
                 qv = await embed(frase, c["imagem"])
-                precedentes, _ = await rag.vector_search(qv, cat)
+                precedentes, _ = await rag.vector_search(qv, cat, texto_rerank=mascarar_pii(frase))
                 _, jpeg = _imagem(c["imagem"])
                 v = await analisar_veredito(jpeg, "image/jpeg", mascarar_pii(frase), precedentes)
                 ok, aceito = veredito_ok(v, c["llm"]["aceitaveis"])
@@ -286,6 +290,7 @@ def summarize(res: dict) -> dict:
                 s[f"{modo}_{k}"] = res["busca"][modo][k]
         s["busca_n"] = res["busca"]["vector"]["n"]
         s["hybrid_fallback"] = res["busca"]["hybrid_fallback"]
+        s["rerank_aplicado"] = res["busca"].get("rerank_aplicado", 0)
     if "identidade" in res:
         for k in ("accuracy", "falsa_rejeicao", "falsa_aceitacao", "inconclusivo", "sem_referencia"):
             s[f"identidade_{k}"] = res["identidade"].get(k, 0)

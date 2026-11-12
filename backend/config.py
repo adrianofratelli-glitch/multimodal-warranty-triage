@@ -41,6 +41,12 @@ MAX_TIME_MS = int(os.getenv("MONGODB_MAX_TIME_MS", "10000"))
 EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL", "voyage-multimodal-3")
 EMBEDDING_DIM = int(os.getenv("EMBEDDING_DIMENSIONS", "1024"))
 
+# --- Rerank nativo do Atlas ($rerank, Voyage) sobre os precedentes ---
+# Reordena o top-k de vector/hybrid pela relevância texto x frase_analise.
+# Medido em 2026-11-12 (eval/run_quality.py, 20 consultas): recall@1 0,95 -> 1,0,
+# +~190 ms p50. Vazio desliga (RERANK_MODEL=); falha do estágio degrada sem rerank.
+RERANK_MODEL = os.getenv("RERANK_MODEL", "rerank-2.5-lite").strip()
+
 # --- Anthropic (Claude visão) ---
 ANTHROPIC_MODEL = os.getenv("ANTHROPIC_MODEL", "claude-sonnet-4-6")
 ANTHROPIC_MAX_TOKENS = int(os.getenv("ANTHROPIC_MAX_TOKENS", "1024"))

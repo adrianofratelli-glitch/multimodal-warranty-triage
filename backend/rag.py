@@ -4,6 +4,9 @@
   PRÉ-COMPUTADO (Caminho B). Pré-filtro {categoria, status:"resolvido"}.
 - hybrid_search: $rankFusion combinando vetorial + Atlas Search full-text (demo
   da força do Atlas). Degrada com graça se o cluster não suportar $rankFusion.
+- Ambos, quando recebem `texto_rerank`, terminam com `$rerank` (Voyage, nativo do
+  Atlas) sobre `frase_analise` do top-k. Se o estágio falhar, a mesma consulta roda
+  sem rerank e o funnel registra o motivo (ver docs/adr/0004-rerank-precedentes.md).
 
 Nada aqui cria índice nem modifica documentos.
 """
@@ -112,10 +115,50 @@ def combinar_identidades(identidades: list[dict]) -> dict:
     return {"status": pior.get("status"), "motivo": pior.get("motivo")}
 
 
-async def vector_search(query_vector: list[float], categoria: str) -> tuple[list[dict], dict]:
+def _estagios_rerank(texto: str, meta_anterior: str) -> list[dict]:
+    """Estágios que guardam o score da recuperação e reordenam o top-k com $rerank.
+
+    `$rerank` substitui `$meta: "score"`, então o score anterior vai antes para
+    `score_recuperacao`. O estágio falha se `path` faltar em algum documento: o
+    `$set` garante string vazia (precedente antigo sem frase_analise).
+    """
+    return [
+        {"$addFields": {"score_recuperacao": {"$meta": meta_anterior}}},
+        {"$set": {"frase_analise": {"$ifNull": ["$frase_analise", ""]}}},
+        {"$rerank": {"query": {"text": texto}, "path": "frase_analise",
+                     "numDocsToRerank": LIMIT, "model": config.RERANK_MODEL}},
+        {"$addFields": {"score": {"$meta": "score"}}},
+    ]
+
+
+async def _executar(base: list[dict], meta_score: str, texto_rerank: str | None) -> tuple[list[dict], list[dict], dict]:
+    """Roda `base` (+ $rerank quando há texto e modelo). Devolve (docs, pipeline, rerank_info).
+
+    Falha do $rerank (estágio indisponível, Voyage fora, cota) não derruba a busca:
+    a mesma consulta roda sem rerank e `rerank_info` explica. Erro de conexão sobe.
+    """
+    sem_rerank = [*base, {"$addFields": {"score": {"$meta": meta_score}}}, {"$project": _PROJECT}]
+    if not (texto_rerank and config.RERANK_MODEL):
+        docs = await safe_query(chamados().aggregate(sem_rerank, maxTimeMS=config.MAX_TIME_MS).to_list(length=LIMIT))
+        return docs, sem_rerank, {"aplicado": False, "motivo": "desligado"}
+    com_rerank = [*base, *_estagios_rerank(texto_rerank, meta_score), {"$project": _PROJECT}]
+    try:
+        docs = await safe_query(chamados().aggregate(com_rerank, maxTimeMS=config.MAX_TIME_MS).to_list(length=LIMIT))
+        return docs, com_rerank, {"aplicado": True, "modelo": config.RERANK_MODEL}
+    except SafeQueryError as e:
+        if e.kind == "conexao":
+            raise
+        logger.warning("rerank_fallback kind=%s motivo=%s", e.kind, e.message[:160])
+        docs = await safe_query(chamados().aggregate(sem_rerank, maxTimeMS=config.MAX_TIME_MS).to_list(length=LIMIT))
+        return docs, sem_rerank, {"aplicado": False, "motivo": e.message[:160]}
+
+
+async def vector_search(query_vector: list[float], categoria: str, texto_rerank: str | None = None) -> tuple[list[dict], dict]:
     """Retorna (docs, funnel). funnel carrega os números de cada estágio para o
-    PipelineSteps.jsx mostrar o afunilamento candidatos → contexto."""
-    pipeline = [
+    PipelineSteps.jsx mostrar o afunilamento candidatos → contexto.
+
+    `texto_rerank` (frase com PII mascarada) liga o $rerank do top-k."""
+    base = [
         {
             "$vectorSearch": {
                 "index": config.VECTOR_INDEX,
@@ -126,11 +169,8 @@ async def vector_search(query_vector: list[float], categoria: str) -> tuple[list
                 "filter": {"categoria": categoria, "status": "resolvido"},
             }
         },
-        {"$addFields": {"score": {"$meta": "vectorSearchScore"}}},
-        {"$project": _PROJECT},
     ]
-    cursor = chamados().aggregate(pipeline, maxTimeMS=config.MAX_TIME_MS)
-    docs = await safe_query(cursor.to_list(length=LIMIT))
+    docs, pipeline, rerank = await _executar(base, "vectorSearchScore", texto_rerank)
     for d in docs:
         d["_id"] = str(d["_id"])
     funnel = {
@@ -139,6 +179,7 @@ async def vector_search(query_vector: list[float], categoria: str) -> tuple[list
         "limit": LIMIT,
         "filtro": {"categoria": categoria, "status": "resolvido"},
         "retrieved": len(docs),
+        "rerank": rerank,
         "query_details": {"operation": "aggregate", "pipeline": _display_pipeline(pipeline)},
     }
     return docs, funnel
@@ -226,10 +267,13 @@ def _fmt(v: float | None) -> str:
     return "None" if v is None else f"{v:.4f}"
 
 
-async def hybrid_search(query_vector: list[float], texto: str, categoria: str) -> tuple[list[dict], dict]:
+async def hybrid_search(
+    query_vector: list[float], texto: str, categoria: str, texto_rerank: str | None = None
+) -> tuple[list[dict], dict]:
     """Busca híbrida via $rankFusion (vetorial + full-text BM25), fundindo os dois
-    rankings. Cai para vector_search se o cluster não tiver $rankFusion."""
-    pipeline = [
+    rankings. Cai para vector_search se o cluster não tiver $rankFusion.
+    `texto_rerank` (frase com PII mascarada) liga o $rerank do top-k."""
+    base = [
         {
             "$rankFusion": {
                 "input": {
@@ -269,18 +313,15 @@ async def hybrid_search(query_vector: list[float], texto: str, categoria: str) -
             }
         },
         {"$limit": LIMIT},
-        {"$addFields": {"score": {"$meta": "score"}}},
-        {"$project": _PROJECT},
     ]
-    cursor = chamados().aggregate(pipeline, maxTimeMS=config.MAX_TIME_MS)
     try:
-        docs = await safe_query(cursor.to_list(length=LIMIT))
+        docs, pipeline, rerank = await _executar(base, "score", texto_rerank)
     except SafeQueryError as e:
         # Só degrada pra vetorial quando a causa é ausência de suporte/índice —
         # qualquer outro erro (conexão, timeout) sobe normal pro Banner de erro.
         msg = e.message.lower()
         if e.kind in ("search", "indice") or "rankfusion" in msg or "unrecognized pipeline stage" in msg:
-            docs, funnel = await vector_search(query_vector, categoria)
+            docs, funnel = await vector_search(query_vector, categoria, texto_rerank)
             funnel["modo"] = "vector_fallback"
             funnel["fallback_motivo"] = e.message[:160]
             return docs, funnel
@@ -293,6 +334,7 @@ async def hybrid_search(query_vector: list[float], texto: str, categoria: str) -
         "num_candidates": NUM_CANDIDATES,
         "retrieved": len(docs),
         "pesos": {"vetorial": 0.7, "textual": 0.3},
+        "rerank": rerank,
         "query_details": {"operation": "aggregate", "pipeline": _display_pipeline(pipeline)},
     }
     return docs, funnel
