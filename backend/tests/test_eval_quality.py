@@ -62,7 +62,7 @@ def test_veredito_ok():
 
 def test_gabarito_versionado_e_valido():
     gab = json.loads(rq.GABARITO.read_text(encoding="utf-8"))
-    assert gab["_status"].startswith("rascunho")
+    assert gab["_status"].lower().startswith(("rascunho", "validado"))
     produtos, catalogo, seed_ids = rq._carregar_backend()
     assert rq.validar_gabarito(gab, produtos, catalogo, seed_ids) == []
     assert 15 <= len(gab["busca"]) + len(gab["identidade"]) <= 60

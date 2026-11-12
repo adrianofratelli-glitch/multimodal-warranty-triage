@@ -3,7 +3,7 @@
 
 Mede o caminho real do backend (`voyage.embed_multimodal` com input_type="query", `rag.vector_search`,
 `rag.hybrid_search` e `rag.verificar_identidade`) contra o gabarito `eval/gabarito_qualidade.json`
-(rascunho, derivado do seed). Só LÊ o banco configurado no `.env` (agregações de busca); não grava nada.
+(validado pelo usuário em 2026-11-12, derivado do seed). Só LÊ o banco configurado no `.env` (agregações de busca); não grava nada.
 
     backend/.venv/bin/python eval/run_quality.py --out /tmp/warranty_quality.json
     backend/.venv/bin/python eval/run_quality.py --secoes veredito --out /tmp/warranty_llm.json  # Claude via Grove

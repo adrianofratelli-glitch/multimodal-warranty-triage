@@ -1,60 +1,538 @@
 {
-  "_status": "rascunho — validar com o usuário",
+  "_status": "VALIDADO pelo usuário em 2026-11-12 (variante próxima: 'divergente' ou 'inconclusivo' aceitos; causa da IA: 'inconclusivo' aceitável). Dados sintéticos/fotos versionadas; sem nome de cliente, PII ou host.",
   "_origem": "Derivado do seed versionado (backend/seed_data.py: 15 chamados resolvidos CHM-2026-0001..0015; backend/catalogo_produtos_data.py: fotos de referência por SKU) e dos cenários do Portal (frontend/src/tabs/Portal.jsx). Fotos de consulta: frontend/public/demo/<SKU>.jpg (versionadas, distintas das fotos do seed e do catálogo). Relatos escritos para o eval, sem copiar o texto do seed. Dados fictícios: sem cliente real, PII ou host.",
   "_relevancia": "Busca: o vizinho conhecido é o chamado do seed com a mesma categoria e o mesmo defeito do checklist (ou, sem checklist, o mesmo defeito descrito no relato). Cada categoria tem 5 precedentes resolvidos, então recall@5 é trivial (1,0): as métricas úteis são recall@1, recall@3 e MRR.",
   "_identidade": "Matriz completa das 5 fotos de demo versionadas x 6 SKUs do seed (30 casos). A identidade usa so a imagem (rag.verificar_identidade com voyage.embed_imagem), entao checklist/descricao nao entram; I01-I12 mantem os campos do rascunho original. esperado: aprovado | divergente | inconclusivo | sem_referencia; aceitaveis (opcional) lista os status corretos do caso; nenhum caso nao legitimo aceita 'aprovado'.",
   "busca": [
-    {"id": "R01", "sku": "CAD-OFF-PRO", "imagem": "frontend/public/demo/CAD-OFF-PRO.jpg", "checklist": ["perna_quebrada"], "descricao": "A perna de tras da cadeira chegou rachada e a embalagem estava amassada.", "relevantes": ["CHM-2026-0001"]},
-    {"id": "R02", "sku": "CAD-OFF-PRO", "imagem": "frontend/public/demo/CAD-OFF-PRO.jpg", "checklist": ["estofado_rasgado"], "descricao": "Depois de alguns meses de uso o tecido do assento abriu um rasgo.", "relevantes": ["CHM-2026-0002"]},
-    {"id": "R03", "sku": "CAD-GAMER-X", "imagem": "frontend/public/demo/CAD-GAMER-X.jpg", "checklist": ["pistao_vazando"], "descricao": "A cadeira desce sozinha enquanto estou sentado, o ajuste de altura nao segura.", "relevantes": ["CHM-2026-0003"], "llm": {"aceitaveis": ["defeito_fabrica", "inconclusivo"]}},
-    {"id": "R04", "sku": "CAD-GAMER-X", "imagem": "frontend/public/demo/CAD-GAMER-X.jpg", "checklist": ["mancha"], "descricao": "Derramei bebida no encosto e ficou uma mancha que nao sai.", "relevantes": ["CHM-2026-0004"]},
-    {"id": "R05", "sku": "CAD-OFF-PRO", "imagem": "frontend/public/demo/CAD-OFF-PRO.jpg", "checklist": ["base_travada"], "descricao": "A base nao gira desde que tirei da caixa, parece presa.", "relevantes": ["CHM-2026-0005"]},
-    {"id": "R06", "sku": "COL-MOLAS-Q", "imagem": "frontend/public/demo/COL-MOLAS-Q.jpg", "checklist": ["afundamento"], "descricao": "Em poucas semanas o meio do colchao cedeu e ficou um buraco.", "relevantes": ["CHM-2026-0006"], "llm": {"aceitaveis": ["defeito_fabrica", "inconclusivo"]}},
-    {"id": "R07", "sku": "COL-MOLAS-Q", "imagem": "frontend/public/demo/COL-MOLAS-Q.jpg", "checklist": ["mancha"], "descricao": "Apareceu uma mancha amarela num canto do colchao com o uso.", "relevantes": ["CHM-2026-0007"]},
-    {"id": "R08", "sku": "COL-ESPUMA-S", "imagem": "frontend/public/demo/COL-MOLAS-Q.jpg", "checklist": ["rasgo_tecido"], "descricao": "O tecido da lateral veio rasgado e o plastico de protecao chegou furado.", "relevantes": ["CHM-2026-0008"], "nota": "sem foto de demo do SKU; usa a foto de outro colchao"},
-    {"id": "R09", "sku": "COL-MOLAS-Q", "imagem": "frontend/public/demo/COL-MOLAS-Q.jpg", "checklist": ["molas_salientes"], "descricao": "Sinto as molas espetando quando deito, algumas ja aparecem no tecido.", "relevantes": ["CHM-2026-0009"]},
-    {"id": "R10", "sku": "COL-ESPUMA-S", "imagem": "frontend/public/demo/COL-MOLAS-Q.jpg", "checklist": ["costura_solta"], "descricao": "A costura em volta do colchao comecou a abrir na primeira semana.", "relevantes": ["CHM-2026-0010"], "nota": "sem foto de demo do SKU; usa a foto de outro colchao"},
-    {"id": "R11", "sku": "GR-6PORTAS", "imagem": "frontend/public/demo/GR-6PORTAS.jpg", "checklist": ["porta_desalinhada"], "descricao": "As portas de correr ficam com uma fresta e nao encostam desde a montagem.", "relevantes": ["CHM-2026-0011"]},
-    {"id": "R12", "sku": "GR-6PORTAS", "imagem": "frontend/public/demo/GR-6PORTAS.jpg", "checklist": ["arranhado"], "descricao": "Painel da frente com um risco fundo, a caixa veio rasgada.", "relevantes": ["CHM-2026-0012"], "llm": {"aceitaveis": ["defeito_transporte", "inconclusivo"]}},
-    {"id": "R13", "sku": "GR-3PORTAS", "imagem": "frontend/public/demo/GR-3PORTAS.jpg", "checklist": ["dobradica_quebrada"], "descricao": "A dobradica de uma porta chegou quebrada, a caixa tinha marca de pancada.", "relevantes": ["CHM-2026-0013"]},
-    {"id": "R14", "sku": "GR-3PORTAS", "imagem": "frontend/public/demo/GR-3PORTAS.jpg", "checklist": ["painel_lascado"], "descricao": "Um canto de baixo do movel estava lascado quando abri a embalagem.", "relevantes": ["CHM-2026-0014"]},
-    {"id": "R15", "sku": "GR-6PORTAS", "imagem": "frontend/public/demo/GR-6PORTAS.jpg", "checklist": ["puxador_faltando"], "descricao": "Veio faltando um puxador, revisei todos os pacotes de pecas.", "relevantes": ["CHM-2026-0015"], "llm": {"aceitaveis": ["defeito_fabrica", "inconclusivo"]}},
-    {"id": "R16", "sku": "CAD-GAMER-X", "imagem": "frontend/public/demo/CAD-GAMER-X.jpg", "checklist": [], "descricao": "Minha cadeira vai abaixando aos poucos sozinha, nao fica na altura que eu deixo.", "relevantes": ["CHM-2026-0003"], "nota": "sem checklist: so o relato distingue o defeito"},
-    {"id": "R17", "sku": "COL-MOLAS-Q", "imagem": "frontend/public/demo/COL-MOLAS-Q.jpg", "checklist": [], "descricao": "O colchao formou uma cova no centro em menos de um mes.", "relevantes": ["CHM-2026-0006"], "nota": "sem checklist"},
-    {"id": "R18", "sku": "GR-6PORTAS", "imagem": "frontend/public/demo/GR-6PORTAS.jpg", "checklist": [], "descricao": "Falta uma das macanetas das portas, nao veio no kit de pecas.", "relevantes": ["CHM-2026-0015"], "nota": "sem checklist; sinonimo (macaneta x puxador)"},
-    {"id": "R19", "sku": "CAD-OFF-PRO", "imagem": "frontend/public/demo/CAD-OFF-PRO.jpg", "checklist": [], "descricao": "Quando chegou a perna estava trincada, a caixa veio toda amassada.", "relevantes": ["CHM-2026-0001"], "nota": "sem checklist"},
-    {"id": "R20", "sku": "GR-3PORTAS", "imagem": "frontend/public/demo/GR-3PORTAS.jpg", "checklist": [], "descricao": "Ao desembalar vi que a quina inferior estava quebrada, a embalagem estava danificada.", "relevantes": ["CHM-2026-0014"], "nota": "sem checklist; vizinho proximo de CHM-2026-0013 (tambem transporte)"}
+    {
+      "id": "R01",
+      "sku": "CAD-OFF-PRO",
+      "imagem": "frontend/public/demo/CAD-OFF-PRO.jpg",
+      "checklist": [
+        "perna_quebrada"
+      ],
+      "descricao": "A perna de tras da cadeira chegou rachada e a embalagem estava amassada.",
+      "relevantes": [
+        "CHM-2026-0001"
+      ]
+    },
+    {
+      "id": "R02",
+      "sku": "CAD-OFF-PRO",
+      "imagem": "frontend/public/demo/CAD-OFF-PRO.jpg",
+      "checklist": [
+        "estofado_rasgado"
+      ],
+      "descricao": "Depois de alguns meses de uso o tecido do assento abriu um rasgo.",
+      "relevantes": [
+        "CHM-2026-0002"
+      ]
+    },
+    {
+      "id": "R03",
+      "sku": "CAD-GAMER-X",
+      "imagem": "frontend/public/demo/CAD-GAMER-X.jpg",
+      "checklist": [
+        "pistao_vazando"
+      ],
+      "descricao": "A cadeira desce sozinha enquanto estou sentado, o ajuste de altura nao segura.",
+      "relevantes": [
+        "CHM-2026-0003"
+      ],
+      "llm": {
+        "aceitaveis": [
+          "defeito_fabrica",
+          "inconclusivo"
+        ]
+      }
+    },
+    {
+      "id": "R04",
+      "sku": "CAD-GAMER-X",
+      "imagem": "frontend/public/demo/CAD-GAMER-X.jpg",
+      "checklist": [
+        "mancha"
+      ],
+      "descricao": "Derramei bebida no encosto e ficou uma mancha que nao sai.",
+      "relevantes": [
+        "CHM-2026-0004"
+      ]
+    },
+    {
+      "id": "R05",
+      "sku": "CAD-OFF-PRO",
+      "imagem": "frontend/public/demo/CAD-OFF-PRO.jpg",
+      "checklist": [
+        "base_travada"
+      ],
+      "descricao": "A base nao gira desde que tirei da caixa, parece presa.",
+      "relevantes": [
+        "CHM-2026-0005"
+      ]
+    },
+    {
+      "id": "R06",
+      "sku": "COL-MOLAS-Q",
+      "imagem": "frontend/public/demo/COL-MOLAS-Q.jpg",
+      "checklist": [
+        "afundamento"
+      ],
+      "descricao": "Em poucas semanas o meio do colchao cedeu e ficou um buraco.",
+      "relevantes": [
+        "CHM-2026-0006"
+      ],
+      "llm": {
+        "aceitaveis": [
+          "defeito_fabrica",
+          "inconclusivo"
+        ]
+      }
+    },
+    {
+      "id": "R07",
+      "sku": "COL-MOLAS-Q",
+      "imagem": "frontend/public/demo/COL-MOLAS-Q.jpg",
+      "checklist": [
+        "mancha"
+      ],
+      "descricao": "Apareceu uma mancha amarela num canto do colchao com o uso.",
+      "relevantes": [
+        "CHM-2026-0007"
+      ]
+    },
+    {
+      "id": "R08",
+      "sku": "COL-ESPUMA-S",
+      "imagem": "frontend/public/demo/COL-MOLAS-Q.jpg",
+      "checklist": [
+        "rasgo_tecido"
+      ],
+      "descricao": "O tecido da lateral veio rasgado e o plastico de protecao chegou furado.",
+      "relevantes": [
+        "CHM-2026-0008"
+      ],
+      "nota": "sem foto de demo do SKU; usa a foto de outro colchao"
+    },
+    {
+      "id": "R09",
+      "sku": "COL-MOLAS-Q",
+      "imagem": "frontend/public/demo/COL-MOLAS-Q.jpg",
+      "checklist": [
+        "molas_salientes"
+      ],
+      "descricao": "Sinto as molas espetando quando deito, algumas ja aparecem no tecido.",
+      "relevantes": [
+        "CHM-2026-0009"
+      ]
+    },
+    {
+      "id": "R10",
+      "sku": "COL-ESPUMA-S",
+      "imagem": "frontend/public/demo/COL-MOLAS-Q.jpg",
+      "checklist": [
+        "costura_solta"
+      ],
+      "descricao": "A costura em volta do colchao comecou a abrir na primeira semana.",
+      "relevantes": [
+        "CHM-2026-0010"
+      ],
+      "nota": "sem foto de demo do SKU; usa a foto de outro colchao"
+    },
+    {
+      "id": "R11",
+      "sku": "GR-6PORTAS",
+      "imagem": "frontend/public/demo/GR-6PORTAS.jpg",
+      "checklist": [
+        "porta_desalinhada"
+      ],
+      "descricao": "As portas de correr ficam com uma fresta e nao encostam desde a montagem.",
+      "relevantes": [
+        "CHM-2026-0011"
+      ]
+    },
+    {
+      "id": "R12",
+      "sku": "GR-6PORTAS",
+      "imagem": "frontend/public/demo/GR-6PORTAS.jpg",
+      "checklist": [
+        "arranhado"
+      ],
+      "descricao": "Painel da frente com um risco fundo, a caixa veio rasgada.",
+      "relevantes": [
+        "CHM-2026-0012"
+      ],
+      "llm": {
+        "aceitaveis": [
+          "defeito_transporte",
+          "inconclusivo"
+        ]
+      }
+    },
+    {
+      "id": "R13",
+      "sku": "GR-3PORTAS",
+      "imagem": "frontend/public/demo/GR-3PORTAS.jpg",
+      "checklist": [
+        "dobradica_quebrada"
+      ],
+      "descricao": "A dobradica de uma porta chegou quebrada, a caixa tinha marca de pancada.",
+      "relevantes": [
+        "CHM-2026-0013"
+      ]
+    },
+    {
+      "id": "R14",
+      "sku": "GR-3PORTAS",
+      "imagem": "frontend/public/demo/GR-3PORTAS.jpg",
+      "checklist": [
+        "painel_lascado"
+      ],
+      "descricao": "Um canto de baixo do movel estava lascado quando abri a embalagem.",
+      "relevantes": [
+        "CHM-2026-0014"
+      ]
+    },
+    {
+      "id": "R15",
+      "sku": "GR-6PORTAS",
+      "imagem": "frontend/public/demo/GR-6PORTAS.jpg",
+      "checklist": [
+        "puxador_faltando"
+      ],
+      "descricao": "Veio faltando um puxador, revisei todos os pacotes de pecas.",
+      "relevantes": [
+        "CHM-2026-0015"
+      ],
+      "llm": {
+        "aceitaveis": [
+          "defeito_fabrica",
+          "inconclusivo"
+        ]
+      }
+    },
+    {
+      "id": "R16",
+      "sku": "CAD-GAMER-X",
+      "imagem": "frontend/public/demo/CAD-GAMER-X.jpg",
+      "checklist": [],
+      "descricao": "Minha cadeira vai abaixando aos poucos sozinha, nao fica na altura que eu deixo.",
+      "relevantes": [
+        "CHM-2026-0003"
+      ],
+      "nota": "sem checklist: so o relato distingue o defeito"
+    },
+    {
+      "id": "R17",
+      "sku": "COL-MOLAS-Q",
+      "imagem": "frontend/public/demo/COL-MOLAS-Q.jpg",
+      "checklist": [],
+      "descricao": "O colchao formou uma cova no centro em menos de um mes.",
+      "relevantes": [
+        "CHM-2026-0006"
+      ],
+      "nota": "sem checklist"
+    },
+    {
+      "id": "R18",
+      "sku": "GR-6PORTAS",
+      "imagem": "frontend/public/demo/GR-6PORTAS.jpg",
+      "checklist": [],
+      "descricao": "Falta uma das macanetas das portas, nao veio no kit de pecas.",
+      "relevantes": [
+        "CHM-2026-0015"
+      ],
+      "nota": "sem checklist; sinonimo (macaneta x puxador)"
+    },
+    {
+      "id": "R19",
+      "sku": "CAD-OFF-PRO",
+      "imagem": "frontend/public/demo/CAD-OFF-PRO.jpg",
+      "checklist": [],
+      "descricao": "Quando chegou a perna estava trincada, a caixa veio toda amassada.",
+      "relevantes": [
+        "CHM-2026-0001"
+      ],
+      "nota": "sem checklist"
+    },
+    {
+      "id": "R20",
+      "sku": "GR-3PORTAS",
+      "imagem": "frontend/public/demo/GR-3PORTAS.jpg",
+      "checklist": [],
+      "descricao": "Ao desembalar vi que a quina inferior estava quebrada, a embalagem estava danificada.",
+      "relevantes": [
+        "CHM-2026-0014"
+      ],
+      "nota": "sem checklist; vizinho proximo de CHM-2026-0013 (tambem transporte)"
+    }
   ],
   "identidade": [
-    {"id": "I01", "imagem": "frontend/public/demo/CAD-GAMER-X.jpg", "sku_pedido": "CAD-GAMER-X", "checklist": ["rodinha_solta"], "descricao": "Uma das rodinhas soltou depois de poucos dias de uso, a cadeira balanca de um lado.", "esperado": "aprovado"},
-    {"id": "I02", "imagem": "frontend/public/demo/CAD-OFF-PRO.jpg", "sku_pedido": "CAD-OFF-PRO", "checklist": ["base_travada"], "descricao": "A base da cadeira trava ao tentar abaixar, nao regula mais a altura.", "esperado": "aprovado"},
-    {"id": "I03", "imagem": "frontend/public/demo/COL-MOLAS-Q.jpg", "sku_pedido": "COL-MOLAS-Q", "checklist": ["afundamento"], "descricao": "O colchao afundou no centro logo nas primeiras semanas, formando uma cova visivel.", "esperado": "aprovado"},
-    {"id": "I04", "imagem": "frontend/public/demo/GR-6PORTAS.jpg", "sku_pedido": "GR-6PORTAS", "checklist": ["porta_desalinhada"], "descricao": "Uma das portas ficou desalinhada e nao fecha direito desde a entrega.", "esperado": "aprovado"},
-    {"id": "I05", "imagem": "frontend/public/demo/GR-3PORTAS.jpg", "sku_pedido": "GR-3PORTAS", "checklist": ["dobradica_quebrada"], "descricao": "A dobradica da porta quebrou na primeira semana.", "esperado": "aprovado"},
-    {"id": "I06", "imagem": "frontend/public/demo/GR-3PORTAS.jpg", "sku_pedido": "GR-6PORTAS", "checklist": ["porta_desalinhada"], "descricao": "Uma das portas ficou desalinhada e nao fecha direito desde a entrega.", "esperado": "divergente", "nota": "cenario negativo do Portal: armario parecido, mas errado; variante da mesma categoria: divergente ou inconclusivo (revisar), nunca aprovado", "aceitaveis": ["divergente", "inconclusivo"]},
-    {"id": "I07", "imagem": "frontend/public/demo/CAD-GAMER-X.jpg", "sku_pedido": "COL-MOLAS-Q", "checklist": ["odor_forte"], "descricao": "O colchao chegou com um odor muito forte, dificil de tirar.", "esperado": "divergente", "nota": "cenario negativo do Portal: produto totalmente errado"},
-    {"id": "I08", "imagem": "frontend/public/demo/GR-6PORTAS.jpg", "sku_pedido": "GR-3PORTAS", "checklist": ["dobradica_quebrada"], "descricao": "A dobradica da porta quebrou na primeira semana.", "esperado": "divergente", "nota": "foto do 6 portas num pedido do 3 portas; variante da mesma categoria: divergente ou inconclusivo (revisar), nunca aprovado. Falhava com a regra antiga (frase com o nome do SKU + margem de empate 0,01)", "aceitaveis": ["divergente", "inconclusivo"]},
-    {"id": "I09", "imagem": "frontend/public/demo/CAD-OFF-PRO.jpg", "sku_pedido": "CAD-GAMER-X", "checklist": ["pistao_vazando"], "descricao": "A cadeira desce sozinha e nao segura a altura.", "esperado": "divergente", "aceitaveis": ["divergente", "inconclusivo"], "nota": "variante da mesma categoria: divergente ou inconclusivo (revisar), nunca aprovado"},
-    {"id": "I10", "imagem": "frontend/public/demo/CAD-GAMER-X.jpg", "sku_pedido": "CAD-OFF-PRO", "checklist": ["base_travada"], "descricao": "A base nao gira, veio travada.", "esperado": "divergente", "aceitaveis": ["divergente", "inconclusivo"], "nota": "variante da mesma categoria: divergente ou inconclusivo (revisar), nunca aprovado"},
-    {"id": "I11", "imagem": "frontend/public/demo/COL-MOLAS-Q.jpg", "sku_pedido": "GR-6PORTAS", "checklist": ["arranhado"], "descricao": "Painel frontal riscado na entrega.", "esperado": "divergente"},
-    {"id": "I12", "imagem": "frontend/public/demo/GR-6PORTAS.jpg", "sku_pedido": "CAD-OFF-PRO", "checklist": ["perna_quebrada"], "descricao": "A perna da cadeira chegou quebrada.", "esperado": "divergente"},
-    {"id": "I13", "imagem": "frontend/public/demo/CAD-GAMER-X.jpg", "sku_pedido": "COL-ESPUMA-S", "esperado": "sem_referencia", "nota": "SKU sem foto no catalogo: estado explicito, revisao humana"},
-    {"id": "I14", "imagem": "frontend/public/demo/CAD-GAMER-X.jpg", "sku_pedido": "GR-6PORTAS", "esperado": "divergente", "nota": "outra categoria"},
-    {"id": "I15", "imagem": "frontend/public/demo/CAD-GAMER-X.jpg", "sku_pedido": "GR-3PORTAS", "esperado": "divergente", "nota": "outra categoria"},
-    {"id": "I16", "imagem": "frontend/public/demo/CAD-OFF-PRO.jpg", "sku_pedido": "COL-MOLAS-Q", "esperado": "divergente", "nota": "outra categoria"},
-    {"id": "I17", "imagem": "frontend/public/demo/CAD-OFF-PRO.jpg", "sku_pedido": "COL-ESPUMA-S", "esperado": "sem_referencia", "nota": "SKU sem foto no catalogo: estado explicito, revisao humana"},
-    {"id": "I18", "imagem": "frontend/public/demo/CAD-OFF-PRO.jpg", "sku_pedido": "GR-6PORTAS", "esperado": "divergente", "nota": "outra categoria"},
-    {"id": "I19", "imagem": "frontend/public/demo/CAD-OFF-PRO.jpg", "sku_pedido": "GR-3PORTAS", "esperado": "divergente", "nota": "outra categoria"},
-    {"id": "I20", "imagem": "frontend/public/demo/COL-MOLAS-Q.jpg", "sku_pedido": "CAD-OFF-PRO", "esperado": "divergente", "nota": "outra categoria"},
-    {"id": "I21", "imagem": "frontend/public/demo/COL-MOLAS-Q.jpg", "sku_pedido": "CAD-GAMER-X", "esperado": "divergente", "nota": "outra categoria"},
-    {"id": "I22", "imagem": "frontend/public/demo/COL-MOLAS-Q.jpg", "sku_pedido": "COL-ESPUMA-S", "esperado": "sem_referencia", "nota": "SKU sem foto no catalogo: estado explicito, revisao humana"},
-    {"id": "I23", "imagem": "frontend/public/demo/COL-MOLAS-Q.jpg", "sku_pedido": "GR-3PORTAS", "esperado": "divergente", "nota": "outra categoria"},
-    {"id": "I24", "imagem": "frontend/public/demo/GR-3PORTAS.jpg", "sku_pedido": "CAD-OFF-PRO", "esperado": "divergente", "nota": "outra categoria"},
-    {"id": "I25", "imagem": "frontend/public/demo/GR-3PORTAS.jpg", "sku_pedido": "CAD-GAMER-X", "esperado": "divergente", "nota": "outra categoria"},
-    {"id": "I26", "imagem": "frontend/public/demo/GR-3PORTAS.jpg", "sku_pedido": "COL-MOLAS-Q", "esperado": "divergente", "nota": "outra categoria"},
-    {"id": "I27", "imagem": "frontend/public/demo/GR-3PORTAS.jpg", "sku_pedido": "COL-ESPUMA-S", "esperado": "sem_referencia", "nota": "SKU sem foto no catalogo: estado explicito, revisao humana"},
-    {"id": "I28", "imagem": "frontend/public/demo/GR-6PORTAS.jpg", "sku_pedido": "CAD-GAMER-X", "esperado": "divergente", "nota": "outra categoria"},
-    {"id": "I29", "imagem": "frontend/public/demo/GR-6PORTAS.jpg", "sku_pedido": "COL-MOLAS-Q", "esperado": "divergente", "nota": "outra categoria"},
-    {"id": "I30", "imagem": "frontend/public/demo/GR-6PORTAS.jpg", "sku_pedido": "COL-ESPUMA-S", "esperado": "sem_referencia", "nota": "SKU sem foto no catalogo: estado explicito, revisao humana"}
+    {
+      "id": "I01",
+      "imagem": "frontend/public/demo/CAD-GAMER-X.jpg",
+      "sku_pedido": "CAD-GAMER-X",
+      "checklist": [
+        "rodinha_solta"
+      ],
+      "descricao": "Uma das rodinhas soltou depois de poucos dias de uso, a cadeira balanca de um lado.",
+      "esperado": "aprovado"
+    },
+    {
+      "id": "I02",
+      "imagem": "frontend/public/demo/CAD-OFF-PRO.jpg",
+      "sku_pedido": "CAD-OFF-PRO",
+      "checklist": [
+        "base_travada"
+      ],
+      "descricao": "A base da cadeira trava ao tentar abaixar, nao regula mais a altura.",
+      "esperado": "aprovado"
+    },
+    {
+      "id": "I03",
+      "imagem": "frontend/public/demo/COL-MOLAS-Q.jpg",
+      "sku_pedido": "COL-MOLAS-Q",
+      "checklist": [
+        "afundamento"
+      ],
+      "descricao": "O colchao afundou no centro logo nas primeiras semanas, formando uma cova visivel.",
+      "esperado": "aprovado"
+    },
+    {
+      "id": "I04",
+      "imagem": "frontend/public/demo/GR-6PORTAS.jpg",
+      "sku_pedido": "GR-6PORTAS",
+      "checklist": [
+        "porta_desalinhada"
+      ],
+      "descricao": "Uma das portas ficou desalinhada e nao fecha direito desde a entrega.",
+      "esperado": "aprovado"
+    },
+    {
+      "id": "I05",
+      "imagem": "frontend/public/demo/GR-3PORTAS.jpg",
+      "sku_pedido": "GR-3PORTAS",
+      "checklist": [
+        "dobradica_quebrada"
+      ],
+      "descricao": "A dobradica da porta quebrou na primeira semana.",
+      "esperado": "aprovado"
+    },
+    {
+      "id": "I06",
+      "imagem": "frontend/public/demo/GR-3PORTAS.jpg",
+      "sku_pedido": "GR-6PORTAS",
+      "checklist": [
+        "porta_desalinhada"
+      ],
+      "descricao": "Uma das portas ficou desalinhada e nao fecha direito desde a entrega.",
+      "esperado": "divergente",
+      "nota": "cenario negativo do Portal: armario parecido, mas errado; variante da mesma categoria: divergente ou inconclusivo (revisar), nunca aprovado",
+      "aceitaveis": [
+        "divergente",
+        "inconclusivo"
+      ]
+    },
+    {
+      "id": "I07",
+      "imagem": "frontend/public/demo/CAD-GAMER-X.jpg",
+      "sku_pedido": "COL-MOLAS-Q",
+      "checklist": [
+        "odor_forte"
+      ],
+      "descricao": "O colchao chegou com um odor muito forte, dificil de tirar.",
+      "esperado": "divergente",
+      "nota": "cenario negativo do Portal: produto totalmente errado"
+    },
+    {
+      "id": "I08",
+      "imagem": "frontend/public/demo/GR-6PORTAS.jpg",
+      "sku_pedido": "GR-3PORTAS",
+      "checklist": [
+        "dobradica_quebrada"
+      ],
+      "descricao": "A dobradica da porta quebrou na primeira semana.",
+      "esperado": "divergente",
+      "nota": "foto do 6 portas num pedido do 3 portas; variante da mesma categoria: divergente ou inconclusivo (revisar), nunca aprovado. Falhava com a regra antiga (frase com o nome do SKU + margem de empate 0,01)",
+      "aceitaveis": [
+        "divergente",
+        "inconclusivo"
+      ]
+    },
+    {
+      "id": "I09",
+      "imagem": "frontend/public/demo/CAD-OFF-PRO.jpg",
+      "sku_pedido": "CAD-GAMER-X",
+      "checklist": [
+        "pistao_vazando"
+      ],
+      "descricao": "A cadeira desce sozinha e nao segura a altura.",
+      "esperado": "divergente",
+      "aceitaveis": [
+        "divergente",
+        "inconclusivo"
+      ],
+      "nota": "variante da mesma categoria: divergente ou inconclusivo (revisar), nunca aprovado"
+    },
+    {
+      "id": "I10",
+      "imagem": "frontend/public/demo/CAD-GAMER-X.jpg",
+      "sku_pedido": "CAD-OFF-PRO",
+      "checklist": [
+        "base_travada"
+      ],
+      "descricao": "A base nao gira, veio travada.",
+      "esperado": "divergente",
+      "aceitaveis": [
+        "divergente",
+        "inconclusivo"
+      ],
+      "nota": "variante da mesma categoria: divergente ou inconclusivo (revisar), nunca aprovado"
+    },
+    {
+      "id": "I11",
+      "imagem": "frontend/public/demo/COL-MOLAS-Q.jpg",
+      "sku_pedido": "GR-6PORTAS",
+      "checklist": [
+        "arranhado"
+      ],
+      "descricao": "Painel frontal riscado na entrega.",
+      "esperado": "divergente"
+    },
+    {
+      "id": "I12",
+      "imagem": "frontend/public/demo/GR-6PORTAS.jpg",
+      "sku_pedido": "CAD-OFF-PRO",
+      "checklist": [
+        "perna_quebrada"
+      ],
+      "descricao": "A perna da cadeira chegou quebrada.",
+      "esperado": "divergente"
+    },
+    {
+      "id": "I13",
+      "imagem": "frontend/public/demo/CAD-GAMER-X.jpg",
+      "sku_pedido": "COL-ESPUMA-S",
+      "esperado": "sem_referencia",
+      "nota": "SKU sem foto no catalogo: estado explicito, revisao humana"
+    },
+    {
+      "id": "I14",
+      "imagem": "frontend/public/demo/CAD-GAMER-X.jpg",
+      "sku_pedido": "GR-6PORTAS",
+      "esperado": "divergente",
+      "nota": "outra categoria"
+    },
+    {
+      "id": "I15",
+      "imagem": "frontend/public/demo/CAD-GAMER-X.jpg",
+      "sku_pedido": "GR-3PORTAS",
+      "esperado": "divergente",
+      "nota": "outra categoria"
+    },
+    {
+      "id": "I16",
+      "imagem": "frontend/public/demo/CAD-OFF-PRO.jpg",
+      "sku_pedido": "COL-MOLAS-Q",
+      "esperado": "divergente",
+      "nota": "outra categoria"
+    },
+    {
+      "id": "I17",
+      "imagem": "frontend/public/demo/CAD-OFF-PRO.jpg",
+      "sku_pedido": "COL-ESPUMA-S",
+      "esperado": "sem_referencia",
+      "nota": "SKU sem foto no catalogo: estado explicito, revisao humana"
+    },
+    {
+      "id": "I18",
+      "imagem": "frontend/public/demo/CAD-OFF-PRO.jpg",
+      "sku_pedido": "GR-6PORTAS",
+      "esperado": "divergente",
+      "nota": "outra categoria"
+    },
+    {
+      "id": "I19",
+      "imagem": "frontend/public/demo/CAD-OFF-PRO.jpg",
+      "sku_pedido": "GR-3PORTAS",
+      "esperado": "divergente",
+      "nota": "outra categoria"
+    },
+    {
+      "id": "I20",
+      "imagem": "frontend/public/demo/COL-MOLAS-Q.jpg",
+      "sku_pedido": "CAD-OFF-PRO",
+      "esperado": "divergente",
+      "nota": "outra categoria"
+    },
+    {
+      "id": "I21",
+      "imagem": "frontend/public/demo/COL-MOLAS-Q.jpg",
+      "sku_pedido": "CAD-GAMER-X",
+      "esperado": "divergente",
+      "nota": "outra categoria"
+    },
+    {
+      "id": "I22",
+      "imagem": "frontend/public/demo/COL-MOLAS-Q.jpg",
+      "sku_pedido": "COL-ESPUMA-S",
+      "esperado": "sem_referencia",
+      "nota": "SKU sem foto no catalogo: estado explicito, revisao humana"
+    },
+    {
+      "id": "I23",
+      "imagem": "frontend/public/demo/COL-MOLAS-Q.jpg",
+      "sku_pedido": "GR-3PORTAS",
+      "esperado": "divergente",
+      "nota": "outra categoria"
+    },
+    {
+      "id": "I24",
+      "imagem": "frontend/public/demo/GR-3PORTAS.jpg",
+      "sku_pedido": "CAD-OFF-PRO",
+      "esperado": "divergente",
+      "nota": "outra categoria"
+    },
+    {
+      "id": "I25",
+      "imagem": "frontend/public/demo/GR-3PORTAS.jpg",
+      "sku_pedido": "CAD-GAMER-X",
+      "esperado": "divergente",
+      "nota": "outra categoria"
+    },
+    {
+      "id": "I26",
+      "imagem": "frontend/public/demo/GR-3PORTAS.jpg",
+      "sku_pedido": "COL-MOLAS-Q",
+      "esperado": "divergente",
+      "nota": "outra categoria"
+    },
+    {
+      "id": "I27",
+      "imagem": "frontend/public/demo/GR-3PORTAS.jpg",
+      "sku_pedido": "COL-ESPUMA-S",
+      "esperado": "sem_referencia",
+      "nota": "SKU sem foto no catalogo: estado explicito, revisao humana"
+    },
+    {
+      "id": "I28",
+      "imagem": "frontend/public/demo/GR-6PORTAS.jpg",
+      "sku_pedido": "CAD-GAMER-X",
+      "esperado": "divergente",
+      "nota": "outra categoria"
+    },
+    {
+      "id": "I29",
+      "imagem": "frontend/public/demo/GR-6PORTAS.jpg",
+      "sku_pedido": "COL-MOLAS-Q",
+      "esperado": "divergente",
+      "nota": "outra categoria"
+    },
+    {
+      "id": "I30",
+      "imagem": "frontend/public/demo/GR-6PORTAS.jpg",
+      "sku_pedido": "COL-ESPUMA-S",
+      "esperado": "sem_referencia",
+      "nota": "SKU sem foto no catalogo: estado explicito, revisao humana"
+    }
   ]
 }
