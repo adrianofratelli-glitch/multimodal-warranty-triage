@@ -10,8 +10,9 @@ import PipelineSteps from '../components/PipelineSteps.jsx';
 import VeredictoCard from '../components/VeredictoCard.jsx';
 import QueryDetails from '../components/QueryDetails.jsx';
 import { api } from '../api.js';
+import { grauMatch, rotuloBusca, rotuloRerank } from '../lib/triagem.js';
 
-const STEPS = ['Compor frase', 'Guardar foto (storage)', 'Embed multimodal (Voyage AI)', 'Verificar identidade do produto ($vectorSearch)', 'Busca de precedentes (Atlas $rankFusion)', 'Classificar causa provável', 'Gravar chamado (Atlas)'];
+const STEPS = ['Compor frase', 'Guardar foto (storage)', 'Embed multimodal (Voyage AI)', 'Verificar identidade do produto ($vectorSearch)', 'Busca de precedentes (Atlas $rankFusion + $rerank)', 'Classificar causa provável', 'Gravar chamado (Atlas)'];
 
 // O que cada etapa faz no MongoDB — mostrado sempre no pipeline (não só quando
 // concluída), pra deixar explícito onde o Atlas entra em cada passo, não só no
@@ -19,9 +20,9 @@ const STEPS = ['Compor frase', 'Guardar foto (storage)', 'Embed multimodal (Voya
 const STEP_DETAILS = [
   'Sem escrita ainda — junta categoria + produto + checklist + descrição numa frase única que alimenta o embedding do próximo passo.',
   'Blob fica fora do MongoDB (disco local no PoV, S3 em produção) — o Atlas guarda só a referência (uri), nunca o binário da imagem.',
-  'Gera 1 vetor de 1024 dimensões (texto + imagem) — vira o campo `embedding` do documento que será salvo em `chamados`.',
-  '$vectorSearch na collection `catalogo_fotos`, sem filtro de SKU — compara contra TODAS as fotos de referência do catálogo (sinal relativo, não limiar isolado).',
-  '$rankFusion combina $vectorSearch (semântico) + Atlas Search full-text sobre `chamados`, filtrado por categoria + status=resolvido.',
+  'Gera 2 vetores de 1024 dimensões: frase + imagem (vira o campo `embedding` do documento em `chamados` e busca precedentes) e só a imagem (identidade: a frase nomeia o SKU reivindicado e enviesaria a comparação).',
+  '$vectorSearch com o vetor só da imagem na collection `catalogo_fotos`, sem filtro de SKU — compara contra TODAS as fotos de referência do catálogo (sinal relativo, não limiar isolado).',
+  '$rankFusion combina $vectorSearch (semântico) + Atlas Search full-text sobre `chamados`, filtrado por categoria + status=resolvido; $rerank (Voyage, nativo do Atlas) reordena o top 5 pela relevância do texto.',
   'Sem escrita no Mongo — classificação estruturada a partir da imagem + precedentes recuperados na etapa anterior.',
   'insertOne em `chamados`: documento completo (embedding + veredito + identidade) fica pronto pra virar precedente na próxima busca vetorial.',
 ];
@@ -497,7 +498,7 @@ export default function Portal({ state, setState }) {
         <div className="card">
           <div className="card-header">
             <span className="card-title">
-              Precedentes recuperados ({resultado.funnel?.modo === 'hybrid' ? '$rankFusion' : resultado.funnel?.modo === 'vector_fallback' ? '$vectorSearch — fallback' : '$vectorSearch'})
+              Precedentes recuperados ({rotuloBusca(resultado.funnel?.modo)})
             </span>
             <Badge variant="green">
               {resultado.funnel?.retrieved ?? 0}
@@ -508,6 +509,11 @@ export default function Portal({ state, setState }) {
                 pesos: {Math.round(resultado.funnel.pesos.vetorial * 100)}% vetorial · {Math.round(resultado.funnel.pesos.textual * 100)}% textual
               </Badge>
             )}
+            {rotuloRerank(resultado.funnel?.rerank) && (
+              <Badge variant={rotuloRerank(resultado.funnel.rerank).variant}>
+                {rotuloRerank(resultado.funnel.rerank).txt}
+              </Badge>
+            )}
           </div>
           {resultado.funnel?.modo === 'vector_fallback' && (
             <Banner variant="warning" darkMode style={{ marginBottom: 10 }}>
@@ -515,16 +521,10 @@ export default function Portal({ state, setState }) {
             </Banner>
           )}
           {resultado.precedentes.map((p, i) => {
-            // Score do $rankFusion é Reciprocal Rank Fusion (1/(60+posição)), não
-            // similaridade de cosseno — o número absoluto é sempre baixo (~0.01-0.02)
-            // por construção do algoritmo, não indica match fraco. O badge de match
-            // é relativo ao melhor score retornado nesta busca (lista já vem ordenada
-            // desc), pra dar uma leitura visual sem depender do número cru.
-            const maxScore = resultado.precedentes[0]?.score || 1;
-            const relPct = Math.round((p.score / maxScore) * 100);
-            const matchGrau = relPct >= 70 ? { txt: 'match forte', variant: 'green' }
-              : relPct >= 40 ? { txt: 'match moderado', variant: 'yellow' }
-              : { txt: 'match fraco', variant: 'lightgray' };
+            // `score` é o do $rerank (relevância 0-1) ou, sem rerank, o RRF do
+            // $rankFusion (~0,01-0,02 por construção): o grau é relativo ao melhor
+            // da mesma busca (lib/triagem.js::grauMatch).
+            const matchGrau = grauMatch(p.score, resultado.precedentes[0]?.score);
             return (
               <div key={p._id} className="prec-item">
                 <div className="row" style={{ justifyContent: 'space-between' }}>

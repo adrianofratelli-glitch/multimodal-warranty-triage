@@ -3,9 +3,12 @@ import react from '@vitejs/plugin-react';
 import { createRequire } from 'node:module';
 
 const require = createRequire(import.meta.url);
+// POV_API_URL permite apontar o proxy para um backend de teste em outra porta
+// (ex.: http://127.0.0.1:18100) sem tocar na porta da demo; padrão = 8100.
+const apiTarget = process.env.POV_API_URL || 'http://localhost:8100';
 const apiProxy = {
-  '/api': 'http://localhost:8100',
-  '/media': 'http://localhost:8100',
+  '/api': apiTarget,
+  '/media': apiTarget,
 };
 
 export default defineConfig({

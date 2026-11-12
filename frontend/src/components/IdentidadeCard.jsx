@@ -1,5 +1,6 @@
 import Badge from '@leafygreen-ui/badge';
 import Banner from '@leafygreen-ui/banner';
+import { statusIdentidade } from '../lib/triagem.js';
 
 /** Verificação de identidade: a foto do cliente bate com as fotos de referência
  * do SKU (catalogo_fotos, $vectorSearch só com o vetor da imagem)? Sinal de
@@ -17,9 +18,9 @@ const pct = (v) => (v == null ? '—' : `${Math.round(v * 100)}%`);
 
 export default function IdentidadeCard({ identidade }) {
   if (!identidade) return null;
-  const { sku, score, concorrente_sku, concorrente_score, fotos_comparadas, abaixo_threshold } = identidade;
-  // Chamados antigos não têm `status`: derivado do booleano legado.
-  const status = identidade.status_chamado || identidade.status || (abaixo_threshold ? 'divergente' : 'aprovado');
+  const { sku, score, concorrente_sku, concorrente_score, fotos_comparadas } = identidade;
+  // Chamados antigos não têm `status`: derivado do booleano legado (lib/triagem.js).
+  const status = statusIdentidade(identidade);
   const motivo = identidade.motivo_chamado || identidade.motivo;
   const rotulo = ROTULO[status] || ROTULO.inconclusivo;
 

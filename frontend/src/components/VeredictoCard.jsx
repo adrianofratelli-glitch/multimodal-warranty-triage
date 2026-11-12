@@ -1,4 +1,5 @@
 import Badge from '@leafygreen-ui/badge';
+import { confiancaPct, grauConfianca } from '../lib/triagem.js';
 
 const ROTULO = {
   defeito_fabrica: { txt: 'Defeito de fábrica', variant: 'red' },
@@ -7,21 +8,11 @@ const ROTULO = {
   inconclusivo: { txt: 'Inconclusivo', variant: 'blue' },
 };
 
-// Graus de confiança — a classificacao (defeito_fabrica/mau_uso/...) já vem do
-// veredito, mas o numero de 0 a 1 sozinho nao diz se é uma confiança forte ou
-// fraca. Faixas: <40% baixa (pouca evidencia visual sustentando a causa),
-// 40-70% moderada (hipotese plausivel mas nao conclusiva), >=70% alta.
-const grauConfianca = (pct) => {
-  if (pct >= 70) return { txt: 'confiança alta', variant: 'green' };
-  if (pct >= 40) return { txt: 'confiança moderada', variant: 'yellow' };
-  return { txt: 'confiança baixa', variant: 'red' };
-};
-
 /** Card de veredito: classificação + barra de confiança + aviso de revisão humana. */
 export default function VeredictoCard({ veredito, modoBusca }) {
   if (!veredito) return null;
   const r = ROTULO[veredito.classificacao] || { txt: veredito.classificacao, variant: 'darkgray' };
-  const pct = Math.round((veredito.confianca ?? 0) * 100);
+  const pct = confiancaPct(veredito.confianca);
   const grau = grauConfianca(pct);
 
   return (
