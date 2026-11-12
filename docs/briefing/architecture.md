@@ -16,7 +16,7 @@ Tese comercial central: **um cluster Atlas único faz tudo** — não há vector
 
 | Camada | Tecnologia |
 |---|---|
-| Backend | FastAPI (Python 3.14, async), Motor (driver Mongo async) |
+| Backend | FastAPI (Python 3.12+ — CI e imagem Docker em 3.12, desenvolvimento local em 3.14 —, async), Motor (driver Mongo async) |
 | LLM de visão | Claude, sempre via gateway Grove com `_shared/grove_client.AsyncGroveClient` (pacote `pov-shared`): `Authorization: Bearer` + chave real em `x-api-key`, retry com jitter, circuit breaker e fallback de modelo ligados por padrão |
 | Embedding multimodal | Voyage AI `voyage-multimodal-3.5`, 1024 dimensões |
 | Banco | MongoDB Atlas — único cluster para dados operacionais, vetor, full-text e change streams |
@@ -31,7 +31,7 @@ Tese comercial central: **um cluster Atlas único faz tudo** — não há vector
 | Rotas HTTP (thin, sem lógica de negócio) | `backend/main.py` |
 | Config central (tudo vem do `.env`) | `backend/config.py` |
 | Cliente Mongo + `safe_query`/`SafeQueryError` | `backend/db.py` |
-| Recuperação de precedentes ($vectorSearch, $rankFusion, verificação de identidade) | `backend/rag.py` |
+| Recuperação de precedentes ($vectorSearch, $rankFusion, $rerank, verificação de identidade) | `backend/rag.py` |
 | Chamada ao Claude via Grove (tool use forçado, prazo total, fallback de revisão manual) | `backend/llm.py` |
 | Localiza o `pov-shared` (instalado ou pasta irmã `../../_shared`) | `backend/shared_lib.py` |
 | Máscara de PII e detecção de instrução no relato (por cláusula, anti-diluição) | `backend/guardrails_triagem.py` |
@@ -61,7 +61,7 @@ Este é o endpoint central da PoV — todo o resto orbita ele.
 7. **Sinal de instrução no relato** — `guardrails_triagem.avaliar_instrucao` aplica a heurística offline do `_shared/guardrails` ao texto inteiro e a cada cláusula (`score_by_clause`), para que uma ordem curta escondida num relato longo não se dilua. Cada cláusula é pontuada isoladamente (pov-shared ≥ 0.2.0, sem reagrupar); relato com mais de `MAX_CLAUSULAS` (128) cláusulas é marcado como suspeito (fail-closed), nunca tratado como "sem sinal".
 8. **Upload da imagem em paralelo** (`asyncio.create_task` + `run_in_threadpool`) — não bloqueia embedding→RAG→veredito.
 9. **Embeddings manuais** — `voyage.embed_multimodal(frase, imagem, "query")` (1024d, foto principal) para os precedentes e, em paralelo, `voyage.embed_imagem(imagem, "query")` (só a imagem, foto principal e cada foto extra) para a identidade; timeout 30 s, 3 tentativas com backoff do SDK e prazo total `EMBED_DEADLINE_SECONDS`.
-10. **Identidade do produto + precedentes em paralelo** — `rag.verificar_identidade` (vetor só da imagem) contra `catalogo_fotos` inteiro e `rag.vector_search`/`hybrid_search` filtrado por `{categoria, status: "resolvido"}`. A identidade devolve `status` `aprovado` | `inconclusivo` | `divergente` | `sem_referencia` com `motivo`; o pior status entre foto principal e extras vale para o chamado (`status_chamado`, `rag.combinar_identidades`). Regra e medição em `queries.md` #13.
+10. **Identidade do produto + precedentes em paralelo** — `rag.verificar_identidade` (vetor só da imagem) contra `catalogo_fotos` inteiro e `rag.vector_search`/`hybrid_search` filtrado por `{categoria, status: "resolvido"}`, com `$rerank` (Voyage, nativo do Atlas) do top 5 usando a frase com PII mascarada; se o estágio falhar, a busca roda sem ele e o `funnel.rerank` diz o motivo (`queries.md` #14b, `docs/adr/0004-rerank-precedentes.md`). A identidade devolve `status` `aprovado` | `inconclusivo` | `divergente` | `sem_referencia` com `motivo`; o pior status entre foto principal e extras vale para o chamado (`status_chamado`, `rag.combinar_identidades`). Regra e medição em `queries.md` #13.
 11. **Veredito do Claude via Grove** — `llm.analisar_veredito` (tool use forçado). Relato e precedentes vão entre `<relato_cliente>`/`<precedentes>` como dado; o modelo marca `alerta_manipulacao` se o relato, um precedente ou **texto escrito na foto** tentar dar ordens. Com alerta (do modelo ou da heurística) a confiança fica limitada a 50% e o revisor vê o motivo. Falha do gateway depois das tentativas, breaker aberto ou prazo `LLM_DEADLINE_SECONDS` estourado → veredito `inconclusivo` de revisão manual, caso preservado.
 12. **Persistência em dois estágios** — insert com `status: "veredito_pronto_aguardando_upload"` assim que o veredito (pago) existe; depois do upload, um update promove a `em_analise` e grava `persistencia` (1 documento, 2 escritas, bytes do documento, ms do insert e do update), que a UI mostra.
 ### Por que Claude usa tool use forçado, não parsing de JSON em texto
@@ -70,7 +70,7 @@ Este é o endpoint central da PoV — todo o resto orbita ele.
 
 System prompt e schema da tool levam `cache_control: {"type": "ephemeral"}` — são idênticos em toda chamada, então análises repetidas dentro do TTL de cache não pagam de novo os ~250 tokens de entrada fixos.
 
-## Decisões de arquitetura (resumo — motivação completa nos comentários do código)
+## Decisões de arquitetura (resumo — ADRs em `docs/adr/`, motivação também nos comentários do código)
 
 - **Imagem nunca entra no MongoDB.** Blob fica em disco local no PoV (`backend/storage.py`), interface `(uri, url)` é contrato — trocar para S3+CDN em produção é reescrever só esse arquivo. `_safe_path` rejeita path traversal (a key inclui o id do item de checklist vindo do cliente).
 - **Tudo parametrizado pelo `.env`**, lido uma vez por `config.py` que sobe a árvore de diretórios procurando o arquivo. Nunca hardcoda nome de coleção/índice/modelo.

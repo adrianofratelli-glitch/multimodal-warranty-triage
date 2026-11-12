@@ -177,7 +177,7 @@ chamados().watch(pipeline, full_document="updateLookup")
 
 ## Queries — `backend/rag.py` (recuperação de precedentes)
 
-### 12. Busca vetorial pura — `vector_search` (`rag.py:51-80`)
+### 12. Busca vetorial pura — `vector_search` (`rag.py`, `vector_search` + `_executar`)
 
 ```python
 pipeline = [
@@ -189,15 +189,21 @@ pipeline = [
         "limit": 5,
         "filter": {"categoria": categoria, "status": "resolvido"},
     }},
-    {"$addFields": {"score": {"$meta": "vectorSearchScore"}}},
+    # com texto_rerank (frase com PII mascarada) e RERANK_MODEL não vazio — ver #14b:
+    {"$addFields": {"score_recuperacao": {"$meta": "vectorSearchScore"}}},
+    {"$set": {"frase_analise": {"$ifNull": ["$frase_analise", ""]}}},
+    {"$rerank": {"query": {"text": frase_mascarada}, "path": "frase_analise",
+                 "numDocsToRerank": 5, "model": config.RERANK_MODEL}},   # rerank-2.5-lite
+    {"$addFields": {"score": {"$meta": "score"}}},
     {"$project": {"embedding": 0}},
 ]
+# sem rerank: {"$addFields": {"score": {"$meta": "vectorSearchScore"}}} + $project
 chamados().aggregate(pipeline, maxTimeMS=config.MAX_TIME_MS)
 ```
 
 **O que faz:** recupera até 5 chamados históricos semanticamente parecidos, restritos à mesma categoria de produto e já resolvidos (só caso resolvido pode virar precedente — o filtro é aplicado nativamente pelo índice vetorial, não como pós-filtro).
 
-**Por que `queryVector` pré-computado (Caminho B):** o embedding é calculado no backend (Voyage) antes da agregação, não via `$vectorSearch` com texto bruto — dá controle total sobre o modelo/dimensão de embedding e evita acoplar a query ao Atlas fazendo embedding server-side.
+**Por que `queryVector` pré-computado (Caminho B):** o embedding é calculado no backend (Voyage) antes da agregação, não via `$vectorSearch` com texto bruto — o autoEmbed do Atlas é só texto e esta busca usa vetor de imagem + texto (`docs/adr/0003-embedding-na-aplicacao-sem-autoembed.md`).
 
 ### 13. Verificação de identidade do produto — `verificar_identidade` (`rag.py`, regra em `decidir_identidade`)
 
@@ -235,9 +241,9 @@ catalogo_fotos().aggregate(pipeline, maxTimeMS=config.MAX_TIME_MS)
 
 A resposta traz `status`, `motivo`, `score`, `concorrente_sku`, `concorrente_score`, `margem`, `top_sku`, `top_score` e `abaixo_threshold` (compatibilidade: `status != "aprovado"`). O chamado guarda também `status_chamado`/`motivo_chamado`, o pior status entre a foto principal e as extras.
 
-**Medição (2026-11-12, `eval/run_quality.py`, gabarito rascunho):** matriz completa das 5 fotos de demo versionadas × 6 SKUs (30 casos: 5 legítimos, 4 de variante da mesma categoria, 16 de outra categoria, 5 de SKU sem foto). Foto certa: 0,839–0,912; menor margem legítima +0,035 (foto do 3 portas contra o 6 portas). `IDENTIDADE_MARGEM` = 0,02 fica abaixo dela; o piso 0,80 fica entre o pior acerto (0,839) e o pior SKU de outra categoria (0,73). Resultado: acerto 1,0, falsa aceitação 0, falsa rejeição 0. A regra antiga (frase no vetor, margem de empate 0,01) nos mesmos 30 casos: acerto 0,767, falsa aceitação 0,08 (2 de 25: 6 portas pedido como 3 portas e foto do 3 portas pedida como colchão) e os 5 casos sem foto marcados `divergente`. A amostra é pequena (5 fotos): mudar limiar exige rodar o eval; a deriva em produção aparece no WARNING `identidade_metrica` (status, scores, margem, SKUs).
+**Medição (2026-11-12, `eval/run_quality.py`, gabarito com `_status` validado em 2026-11-12):** matriz completa das 5 fotos de demo versionadas × 6 SKUs (30 casos: 5 legítimos, 4 de variante da mesma categoria, 16 de outra categoria, 5 de SKU sem foto). Foto certa: 0,839–0,912; menor margem legítima +0,035 (foto do 3 portas contra o 6 portas). `IDENTIDADE_MARGEM` = 0,02 fica abaixo dela; o piso 0,80 fica entre o pior acerto (0,839) e o pior SKU de outra categoria (0,73). Resultado: acerto 1,0, falsa aceitação 0, falsa rejeição 0. A regra antiga (frase no vetor, margem de empate 0,01) nos mesmos 30 casos: acerto 0,767, falsa aceitação 0,08 (2 de 25: 6 portas pedido como 3 portas e foto do 3 portas pedida como colchão) e os 5 casos sem foto marcados `divergente`. A amostra é pequena (5 fotos): mudar limiar exige rodar o eval; a deriva em produção aparece no WARNING `identidade_metrica` (status, scores, margem, SKUs).
 
-### 14. Busca híbrida — `hybrid_search` via `$rankFusion` (`rag.py:159-228`)
+### 14. Busca híbrida — `hybrid_search` via `$rankFusion` (`rag.py`, `hybrid_search`)
 
 ```python
 pipeline = [
@@ -268,7 +274,7 @@ pipeline = [
         "combination": {"weights": {"vetorial": 0.7, "textual": 0.3}},
     }},
     {"$limit": 5},
-    {"$addFields": {"score": {"$meta": "score"}}},
+    # + os mesmos estágios de $rerank do #12 (score_recuperacao guarda o RRF)
     {"$project": {"embedding": 0}},
 ]
 ```
@@ -276,6 +282,14 @@ pipeline = [
 **O que faz:** funde ranking vetorial (semântico) com ranking full-text BM25 (Atlas Search) numa agregação só, pesos 70/30. É o modo padrão usado pelo Portal na demo (`modo` fixo em `'hybrid'` no `Portal.jsx`).
 
 **Degradação controlada:** se o cluster não suportar `$rankFusion` ou faltar o índice de texto, cai para `vector_search` automaticamente — **mas só quando a causa é ausência de suporte/índice** (`SafeQueryError.kind in ("search", "indice")` ou mensagem contendo "rankfusion"/"unrecognized pipeline stage"). Qualquer outro erro (conexão, timeout) sobe normal para o Banner — um fallback que engolisse erro de infraestrutura transformaria "o cluster está fora" em "os resultados ficaram meio estranhos hoje". Quando cai no fallback, o `funnel` retornado à UI expõe o motivo.
+
+### 14b. `$rerank` dos precedentes (`rag.py`, `_estagios_rerank` e `_executar`)
+
+**O que faz:** reordena o top 5 de #12 ou #14 pela relevância entre a frase do chamado (com PII mascarada, porque o texto sai do cluster para a Voyage) e a `frase_analise` de cada precedente. O score anterior fica em `score_recuperacao`; `score` passa a ser o do reranker (0-1).
+
+**Degradação:** se a agregação com `$rerank` falhar por qualquer motivo que não seja conexão, a mesma busca roda sem o estágio e `funnel.rerank = {"aplicado": false, "motivo": ...}`; a UI mostra o aviso e o pipeline que de fato rodou. `RERANK_MODEL=` vazio desliga.
+
+**Medição (2026-11-12, `eval/run_quality.py`, 20 consultas, corpus do seed):** recall@1 0,95 → 1,0 e MRR 0,975 → 1,0 em vetor e híbrido (um caso, o R20, subiu de 2º para 1º); +~190 ms p50 na agregação. Detalhe e motivo de não quantizar em `docs/adr/0004-rerank-precedentes.md`.
 
 **Por que `categoria`/`status` são indexados como `token`, não `string`:** são enums — o filtro usa `{"equals": ...}` (exact match). Indexar como texto analisado (`string`) traria falso positivo/negativo por stemming.
 

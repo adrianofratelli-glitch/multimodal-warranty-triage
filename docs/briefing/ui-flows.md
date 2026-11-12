@@ -41,16 +41,16 @@ Um dropdown de "Cenário" carrega de uma vez pedido + produto + checklist + desc
 
 | Componente | Arquivo | O que mostra |
 |---|---|---|
-| `PipelineSteps` | `frontend/src/components/PipelineSteps.jsx` | as 7 etapas do `POST /api/analisar` em `pending → running → done`, cada uma com uma linha explicando o que acontece no MongoDB naquele passo (texto fixo em `STEP_DETAILS`, `Portal.jsx:19-27`) |
-| `IdentidadeCard` | `frontend/src/components/IdentidadeCard.jsx` | resultado de `verificar_identidade` — badge pelo `status` do chamado (`aprovado` verde, `inconclusivo — revisar` amarelo, `divergente` vermelho, `sem referência no catálogo` cinza) com a % de similaridade, o concorrente mais próximo e o `motivo` devolvido pelo backend num aviso quando não aprovado. Chamado antigo sem `status` usa o booleano `abaixo_threshold` |
+| `PipelineSteps` | `frontend/src/components/PipelineSteps.jsx` | as 7 etapas do `POST /api/analisar` em `pending → running → done`, cada uma com uma linha explicando o que acontece no MongoDB naquele passo (texto fixo em `STEP_DETAILS`, no topo de `Portal.jsx`) |
+| `IdentidadeCard` | `frontend/src/components/IdentidadeCard.jsx` | resultado de `verificar_identidade` — badge pelo `status` do chamado (`aprovado` verde, `inconclusivo — revisar` amarelo, `divergente` vermelho, `sem referência no catálogo` cinza) com a % de similaridade, o concorrente mais próximo e o `motivo` devolvido pelo backend num aviso quando não aprovado. Chamado antigo sem `status` usa o booleano `abaixo_threshold`; status desconhecido vira `inconclusivo`, nunca `aprovado` (`frontend/src/lib/triagem.js::statusIdentidade`) |
 | `VeredictoCard` | `frontend/src/components/VeredictoCard.jsx` | classificação (badge colorido por tipo), barra de confiança com 3 faixas (baixa/moderada/alta), racional em texto, sinais observados, aviso fixo de revisão humana, metadados (`_meta`: precedentes usados, `$vectorSearch` ou `$rankFusion` conforme o modo real, latência; aviso quando o veredito é o fallback de revisão manual) e, quando `alerta_manipulacao`, um bloco `role="alert"` com borda, ícone e texto ("Possível tentativa de manipulação — confiança limitada a 50%") listando os motivos |
 | Bloco "Um documento por chamado (medido agora)" | `frontend/src/tabs/Portal.jsx` | `persistencia` devolvida pelo backend: documentos, escritas, coleções, KB do documento, ms do insert/update e da busca vetorial + identidade daquela análise. Em envio repetido, avisa que o chamado existente foi devolvido sem nova cobrança |
 | `JsonViewer` | `frontend/src/components/JsonViewer.jsx` | documento Mongo cru — usado tanto nos precedentes quanto no chamado completo na Revisão |
 | `QueryDetails` | `frontend/src/components/QueryDetails.jsx` | expõe o pipeline de agregação real que rodou (via `funnel.query_details`/`identidade.query_details`), com o `queryVector` substituído por `"<N floats omitidos>"` (`rag.py:_display_pipeline`) — nunca expõe o vetor cru na tela |
 
-### Painel de precedentes (`Portal.jsx:468-514`)
+### Painel de precedentes (fim de `Portal.jsx`)
 
-Mostra o `funnel` (quantos candidatos, filtro aplicado, quantos retornaram, modo — `$rankFusion`/`$vectorSearch`/fallback), os pesos vetorial/textual quando é híbrido, e um badge visual de "match forte/moderado/fraco" **relativo ao melhor score da própria busca** (não ao valor absoluto — o score do `$rankFusion` é Reciprocal Rank Fusion, sempre baixo em módulo por construção do algoritmo).
+Mostra o `funnel` (quantos candidatos, filtro aplicado, quantos retornaram, modo — `$rankFusion`/`$vectorSearch`/fallback), os pesos vetorial/textual quando é híbrido, o badge "reordenado por $rerank (modelo)" ou o aviso "$rerank indisponível" (`funnel.rerank`), e um badge de "match forte/moderado/fraco" **relativo ao melhor score da própria busca** (com `$rerank` o score é a relevância do reranker; sem ele, o RRF do `$rankFusion`, sempre baixo em módulo). As regras de rótulo (`grauMatch`, `rotuloBusca`, `rotuloRerank`, `grauConfianca`, `statusIdentidade`) ficam em `frontend/src/lib/triagem.js`, testadas em `frontend/tests/triagem.test.mjs`.
 
 ## Aba 2 — Revisão (`frontend/src/tabs/Revisao.jsx`)
 

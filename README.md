@@ -16,7 +16,7 @@ The UI is in Brazilian Portuguese (used in customer sessions); the code and this
 
 **2. Is this even the right product?** The photo becomes an embedding and is compared against the reference photos of the *entire* catalog. The signal is relative: the ordered product must be the best match among all of them. An absolute threshold alone would let the wrong product through, since studio photos score high against each other anyway.
 
-**3. Precedents, then a structured verdict.** `$vectorSearch` (or hybrid `$rankFusion`) retrieves resolved claims similar to this one, and Claude classifies the probable cause with *forced tool use*: structured output, no fragile parsing of free-text JSON.
+**3. Precedents, then a structured verdict.** `$vectorSearch` (or hybrid `$rankFusion`) retrieves resolved claims similar to this one, Atlas-native `$rerank` (Voyage) reorders the top 5, and Claude classifies the probable cause with *forced tool use*: structured output, no fragile parsing of free-text JSON.
 
 ![Pipeline stages, the identity-check score, and the structured verdict with its reasoning](docs/screenshots/02-verdict.png)
 
@@ -31,7 +31,7 @@ flowchart LR
     A[order + checklist + description + photo] --> B[normalize to JPEG]
     B --> C[Voyage multimodal 1024d]
     B --> D{{"identity (image only): best match in the catalog?"}}
-    C --> E["precedents: $vectorSearch / $rankFusion"]
+    C --> E["precedents: $vectorSearch / $rankFusion + $rerank"]
     E --> F[Claude · forced tool use]
     F --> G[(cases · under review)]
     G --> H[human review] --> I[(resolved → becomes a precedent)]
@@ -49,6 +49,7 @@ flowchart LR
 | Catalog reference photos | `catalogo_fotos` |
 | Semantic search | Vector Search (`defeitos_vector_index`) |
 | Hybrid search | `$rankFusion` + Atlas Search (`chamados_text_index`) |
+| Reranking | `$rerank` (Voyage `rerank-2.5-lite`, called by Atlas) over the top 5 precedents |
 | Live review queue | Change Streams over SSE |
 | Analytics | Aggregation Pipeline (ready for Atlas Charts) |
 | Schema governance | `$jsonSchema` validators |
@@ -59,7 +60,7 @@ Image blobs stay **outside** MongoDB, the correct pattern for blobs. In the PoV 
 
 ## Setup
 
-Requirements: Python 3.12+, Node 22, an Atlas cluster (Vector Search + Atlas Search), a Voyage key and access to the Grove gateway. Copy `.env.example` to `.env` and fill it in (placeholders only in the example; never commit the real `.env`).
+Requirements: Python 3.12+ (CI and the Docker image use 3.12; local development also runs on 3.14), Node 22, an Atlas cluster (Vector Search + Atlas Search), a Voyage key and access to the Grove gateway. Copy `.env.example` to `.env` and fill it in (placeholders only in the example; never commit the real `.env`).
 
 ```bash
 cd backend
@@ -88,6 +89,8 @@ It is idempotent and touches only this PoV's collections (`pedidos`, `catalogo`,
 cd backend && ./.venv/bin/python test_http.py   # full-pipeline smoke test against the running backend
 ```
 
+To test against a backend on another port without touching the demo ports: `POV_API_URL=http://127.0.0.1:18100 node_modules/.bin/vite preview --port 18190` in `frontend/` (the proxy target defaults to `:8100`).
+
 By default the launcher serves the optimized frontend build without a watcher. For HMR editing run `POV_DEV=1 ./start.sh`; the build is only redone when sources or configuration change.
 
 ## Tests
@@ -97,7 +100,7 @@ cd backend
 ./.venv/bin/pip install -r requirements-dev.txt
 ./.venv/bin/pytest -q        # unit + adversarial suite, no Atlas or network (gateway mocked)
 ./.venv/bin/ruff check . ../scripts
-cd ../frontend && node --test tests/*.test.mjs
+cd ../frontend && node --test tests/*.test.mjs   # HTTP deadline + display rules (src/lib/triagem.js)
 
 # live adversarial suite: real Atlas + Voyage + Grove, only against a *_test database
 LIVE_API_URL=http://127.0.0.1:8100 backend/.venv/bin/pytest -q backend/tests/adversarial/test_live_adversarial.py
@@ -109,18 +112,20 @@ Docker: `docker build --build-context shared=../_shared -t warranty-triage . && 
 
 ## Quality evaluation
 
-`eval/run_quality.py` measures quality, not just regressions, against a small answer key (`eval/gabarito_qualidade.json`, a **draft** derived from the seed, still to be validated). It runs the real backend path (Voyage query embedding, `rag.vector_search`, `rag.hybrid_search`, `rag.verificar_identidade`) and only reads the database (search aggregations). It always exits 0 and writes a JSON report.
+`eval/run_quality.py` measures quality, not just regressions, against a small answer key (`eval/gabarito_qualidade.json`, derived from the seed; its `_status` field records the user's validation on 2026-11-12). It runs the real backend path (Voyage query embedding, `rag.vector_search` and `rag.hybrid_search` with the same `$rerank` as `/api/analisar`, `rag.verificar_identidade`) and only reads the database (search aggregations). It always exits 0 and writes a JSON report.
 
 ```bash
 backend/.venv/bin/python eval/run_quality.py --out /tmp/warranty_quality.json                   # search + identity, no LLM
 backend/.venv/bin/python eval/run_quality.py --secoes veredito --out /tmp/warranty_llm.json     # + 4 Claude verdicts via the gateway
 ```
 
-- **Similar resolved claims:** 20 new claims (versioned photos in `frontend/public/demo/`, rewritten descriptions; 5 without checklist) whose known neighbor is a seed precedent. Recall@1, recall@3 and MRR for vector and `$rankFusion`. Each category has 5 precedents, so recall@5 is trivially 1.0.
+- **Similar resolved claims:** 20 new claims (versioned photos in `frontend/public/demo/`, rewritten descriptions; 5 without checklist) whose known neighbor is a seed precedent. Recall@1, recall@3 and MRR for vector and `$rankFusion`. Each category has 5 precedents, so recall@5 is trivially 1.0. Measured on 2026-11-12 on the seed corpus: recall@1 0.95 → 1.0 and MRR 0.975 → 1.0 for both modes after adding `$rerank` (one case moved from 2nd to 1st; small sample), at about +190 ms p50 per search. Cases reviewed during demos also become precedents and are reported as `corpus_fora_do_seed`; run the eval after `scripts/reset_demo.py` for comparable numbers.
 - **Does the photo match the product?** The full matrix of the 5 demo photos × 6 order SKUs (30 cases: 5 correct, 4 close variant of the same category, 16 other category, 5 SKU without a catalog photo): accuracy, false rejection and false acceptance of `rag.decidir_identidade`. The check embeds the image only (the case text names the claimed SKU and biased the score) and compares the order's SKU with the best other SKU in the whole catalog: margin ≤ −0.02 → `divergente`; |margin| < 0.02 → `inconclusivo` (review; a tie between variants is never approved); otherwise score < 0.80 → `inconclusivo`; otherwise `aprovado`. A SKU with no reference photo returns `sem_referencia` (human review), not `divergente`. Measured on 2026-11-12: accuracy 1.0, false acceptance 0, false rejection 0 (the previous rule: 0.767 / 0.08 / 0 on the same 30 cases). Small sample: changing a threshold requires re-running the eval.
 - **Suggested cause (optional, LLM):** the verdict is valid (not the manual-review fallback) and its cause is the precedent's or `inconclusivo`.
 
 ## Resilience and observability (on by default)
+
+- **Reranking:** if the `$rerank` stage fails (stage unavailable, Voyage down, quota), the same search runs without it and the UI says so; connection errors still surface. The query text sent to the reranker is the PII-masked phrase. `RERANK_MODEL` (default `rerank-2.5-lite`; empty disables) selects the model.
 
 - **LLM:** `_shared/grove_client.AsyncGroveClient` (Bearer + real key in `x-api-key`), retries with jitter on 429/5xx/timeouts, circuit breaker and optional model fallback, plus a total deadline (`LLM_DEADLINE_SECONDS`, 90 s). If the gateway still fails, the case is kept with an `inconclusivo` manual-review verdict instead of an error. There is no direct-provider fallback.
 - **Voyage:** 30 s timeout, 3 attempts with exponential backoff, total deadline per embedding.
@@ -147,6 +152,10 @@ Measured on 2026-10-09, N=30, demo cluster from a laptop (results depend on sche
 | Three collections | write, 3 ops (not atomic) | 854.6 ms | 893.7 ms |
 | Three collections | write, 3 ops in a transaction | 1075.1 ms | 1097.6 ms |
 | Three collections | read, 3 ops | 701.8 ms | 733.3 ms |
+
+## Architecture decisions
+
+Short ADRs in [`docs/adr/`](docs/adr/README.md): one document per case, image-only relative identity check, application-side multimodal embeddings (no autoEmbed), and `$rerank` on precedents without vector quantization for now (with the measurements behind each).
 
 ## Endpoints
 

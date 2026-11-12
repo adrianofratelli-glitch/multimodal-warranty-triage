@@ -9,7 +9,7 @@ Este mapa é para localizar código rápido. O detalhe de cada query está em [b
 ```
 backend/                         FastAPI (Python), toda a lógica
   main.py                        As rotas /api/* e o fluxo completo da análise (o arquivo mais importante)
-  rag.py                         As buscas Atlas: $vectorSearch, identidade do produto e $rankFusion
+  rag.py                         As buscas Atlas: $vectorSearch, identidade do produto, $rankFusion e $rerank
   llm.py                         Chamada ao Claude (tool use forçado) e normalização do veredito
   voyage.py                      Embedding multimodal (foto + frase) via Voyage
   db.py                          Cliente Motor, helpers de collection e safe_query (erro -> mensagem pronta para a UI)
@@ -36,14 +36,17 @@ frontend/                        React + Vite + LeafyGreen
   src/tabs/Portal.jsx            Aba "Abrir chamado" (pedido, produto, checklist, foto, Analisar, resultado)
   src/tabs/Revisao.jsx           Aba "Revisar" (fila, stream ao vivo, confirmar)
   src/components/                IdentidadeCard, VeredictoCard, PipelineSteps, QueryDetails, JsonViewer
+  src/lib/triagem.js             Regras puras de rótulo (grau de match, $rerank, identidade, confiança)
   src/polyfills.js               Polyfills de Node exigidos pelo LeafyGreen
-  vite.config.js                 Porta 5190 e proxy de /api e /media para 8100
+  vite.config.js                 Porta 5190 e proxy de /api e /media para 8100 (POV_API_URL troca o alvo)
   tests/http-deadline.test.mjs   Teste do prazo do cliente HTTP
+  tests/triagem.test.mjs         Testes das regras de rótulo (src/lib/triagem.js)
 scripts/
   reset_demo.py                  Recria todos os dados da demo num comando (seed + índices + validação)
   bench_documento_unico.py       Benchmark "1 documento" x "3 coleções" x transação
 seed_images/                     Fotos usadas nos cenários prontos
 docs/briefing/                   Briefings (arquitetura, queries, telas)
+docs/adr/                        Decisões de arquitetura (documento único, identidade, embedding, $rerank)
 docs/screenshots/                Capturas de tela
 run.sh / start.sh                Sobem backend e frontend (ver README)
 Dockerfile, docker/, nginx.conf  Empacotamento
@@ -57,20 +60,20 @@ Todas as chamadas do front passam por `frontend/src/api.js` (objeto `api`, a par
 |---|---|---|---|---|---|
 | Abrir o app (status e contadores no topo, a cada 10 s) | `frontend/src/App.jsx:26-46` | `GET /api/health` | `backend/main.py:148` `health` | `_counts_por_status` (`main.py:168`) | `main.py::_counts_por_status` (`$group` por status, `chamados`) e `ping` |
 | Carregar a lista de pedidos | `Portal.jsx:146` (`api.pedidos()`) | `GET /api/pedidos` | `main.py:184` `listar_pedidos` | a própria rota | `main.py::listar_pedidos` (`find`, `pedidos`) |
-| Escolher o pedido no Select | `Portal.jsx:333-341` -> `buscar` (`Portal.jsx:152`) | `POST /api/lookup` | `main.py:194` `lookup` | a própria rota | `main.py::lookup` (`find_one` e `distinct`, `pedidos`) |
-| Clicar no produto/SKU do pedido | `Portal.jsx:357-359` -> `escolher` (`Portal.jsx:163`) | `GET /api/checklist/{categoria}` | `main.py:209` `checklist` | a própria rota | `main.py::checklist` (`find_one`, `catalogo`) |
+| Escolher o pedido no Select | `Portal.jsx:333-341` -> `buscar` (`Portal.jsx:152`) | `POST /api/lookup` | `main.py:195` `lookup` | a própria rota | `main.py::lookup` (`find_one` e `distinct`, `pedidos`) |
+| Clicar no produto/SKU do pedido | `Portal.jsx:357-359` -> `escolher` (`Portal.jsx:163`) | `GET /api/checklist/{categoria}` | `main.py:210` `checklist` | a própria rota | `main.py::checklist` (`find_one`, `catalogo`) |
 | Menu "Cenário" (pedido+produto+checklist+foto prontos) | `Portal.jsx:314-322` -> `aplicarCenario` (`Portal.jsx:221`) | `POST /api/lookup` e `GET /api/checklist/{categoria}` | idem acima | idem acima | idem acima (o `CENARIOS` está em `Portal.jsx:32`) |
 | Marcar item do checklist / foto extra | `Portal.jsx:372` (`toggle`, linha 197) e `Portal.jsx:377` (`onFileExtra`, linha 213) | nenhuma (só estado local) | n/a | n/a | n/a |
 | Foto principal | `Portal.jsx:398` (`onFile`, linha 251) | nenhuma (só estado local) | n/a | n/a | n/a |
-| **Analisar defeito** | `Portal.jsx:409` -> `analisar` (`Portal.jsx:258`) | `POST /api/analisar` (multipart; `modo` é fixo `hybrid`, `Portal.jsx:136`) | `main.py:458` `analisar` | `main.py::_processar_analise` (`main.py:518`), que chama `rag.verificar_identidade`, `rag.hybrid_search`, `llm.analisar_veredito` | ver tabela da seção 3 (idempotência, 2 buscas Atlas, insert e update de `chamados`) |
+| **Analisar defeito** | `Portal.jsx:409` -> `analisar` (`Portal.jsx:258`) | `POST /api/analisar` (multipart; `modo` é fixo `hybrid`, `Portal.jsx:137`) | `main.py:465` `analisar` | `main.py::_processar_analise` (`main.py:525`), que chama `rag.verificar_identidade`, `rag.hybrid_search`, `llm.analisar_veredito` | ver tabela da seção 3 (idempotência, 2 buscas Atlas, insert e update de `chamados`) |
 | Novo chamado | `Portal.jsx:349` -> `reiniciar` (`Portal.jsx:295`) | nenhuma | n/a | n/a | n/a |
-| Aba Revisar: carga inicial e "Atualizar" | `Revisao.jsx:141` -> `carregar` (`Revisao.jsx:30`) | `GET /api/chamados/pendentes` | `main.py:728` `chamados_pendentes` | a própria rota | `main.py::chamados_pendentes` (`find` paginado por cursor + `_counts_por_status`, `chamados`) |
+| Aba Revisar: carga inicial e "Atualizar" | `Revisao.jsx:141` -> `carregar` (`Revisao.jsx:30`) | `GET /api/chamados/pendentes` | `main.py:742` `chamados_pendentes` | a própria rota | `main.py::chamados_pendentes` (`find` paginado por cursor + `_counts_por_status`, `chamados`) |
 | "Carregar mais" | `Revisao.jsx:177` -> `carregarMais` (`Revisao.jsx:51`) | `GET /api/chamados/pendentes?before_created_at=..&before_id=..` | idem | idem | idem |
-| Fila ao vivo (badge "live") | `Revisao.jsx:88` (`new EventSource`) | `GET /api/chamados/stream` (SSE) | `main.py:844` `chamados_stream` | gerador `_gen` dentro da rota | `main.py::chamados_stream` (`chamados().watch`, Change Stream) |
+| Fila ao vivo (badge "live") | `Revisao.jsx:88` (`new EventSource`) | `GET /api/chamados/stream` (SSE) | `main.py:858` `chamados_stream` | gerador `_gen` dentro da rota | `main.py::chamados_stream` (`chamados().watch`, Change Stream) |
 | Selecionar um chamado da fila | `Revisao.jsx:164` -> `selecionar` (`Revisao.jsx:101`) | nenhuma (usa o doc já carregado) | n/a | n/a | n/a |
-| **Confirmar** resolução | `Revisao.jsx:208` -> `confirmar` (`Revisao.jsx:108`) | `POST /api/revisar` | `main.py:787` `revisar` | a própria rota | `main.py::revisar` (`update_one` filtrando `status: em_analise`, depois `find_one`; `chamados`) |
+| **Confirmar** resolução | `Revisao.jsx:208` -> `confirmar` (`Revisao.jsx:108`) | `POST /api/revisar` | `main.py:801` `revisar` | a própria rota | `main.py::revisar` (`update_one` filtrando `status: em_analise`, depois `find_one`; `chamados`) |
 
-Sem botão na UI (só por API): `GET /api/analytics` (`main.py:818`, agregações para Atlas Charts), `GET /api/metrics` (`main.py:105`), `GET /metrics` (`main.py:111`, formato Prometheus), `GET /health/live` (`main.py:163`).
+Sem botão na UI (só por API): `GET /api/analytics` (`main.py:832`, agregações para Atlas Charts), `GET /api/metrics` (`main.py:105`), `GET /metrics` (`main.py:111`, formato Prometheus), `GET /health/live` (`main.py:163`).
 
 ### O que o `POST /api/analisar` faz, em ordem (para explicar em call)
 
@@ -80,7 +83,7 @@ Sem botão na UI (só por API): `GET /api/analytics` (`main.py:818`, agregaçõe
 4. Embedding multimodal (`voyage.py::embed_multimodal`, via `main.py::_embed`).
 5. Em paralelo: `rag.verificar_identidade` (a foto é do SKU certo?) e `rag.hybrid_search` (precedentes).
 6. `llm.py::analisar_veredito` (Claude, tool `emitir_veredito`). Se o gateway falhar, devolve o veredito "inconclusivo" de revisão manual.
-7. Insert do chamado já com o veredito (`_inserir_chamado_com_retry`, status `veredito_pronto_aguardando_upload`), espera o upload e faz o update para `em_analise` com a medição `persistencia` (`main.py:695`).
+7. Insert do chamado já com o veredito (`_inserir_chamado_com_retry`, status `veredito_pronto_aguardando_upload`), espera o upload e faz o update para `em_analise` com a medição `persistencia` (`main.py:706`).
 
 ## 3. Onde estão as queries MongoDB
 
@@ -96,7 +99,7 @@ Detalhe e exemplos em [briefing/queries.md](briefing/queries.md). Collections: `
 | Achar chamado idêntico na janela de 60 s | `main.py::_buscar_chamado_idempotente` (347) | `find_one` por `idempotency_hash` + `created_at` | `chamados` |
 | Reservar / retomar / liberar trava de idempotência | `main.py::_reservar_idempotencia` (363), `_liberar_idempotencia` (395), `_aguardar_chamado_concorrente` (403) | `insert_one` (`_id` = hash), `update_one`, `delete_one`, `find_one`; TTL em `expires_at` | `idempotencia` |
 | Gravar o chamado com veredito | `main.py::_inserir_chamado_com_retry` (326) | `insert_one` com retry em chave duplicada | `chamados` |
-| Promover o chamado a `em_analise` (upload concluído) | `main.py::_processar_analise` (update em `main.py:695`) | `update_one $set` | `chamados` |
+| Promover o chamado a `em_analise` (upload concluído) | `main.py::_processar_analise` (update em `main.py:706`) | `update_one $set` | `chamados` |
 | Precedentes, modo vetorial | `backend/rag.py::vector_search` (51) | `$vectorSearch` (filtro `categoria` + `status: resolvido`) + `$addFields` + `$project` | `chamados` |
 | Precedentes, modo híbrido (o que a UI usa) | `rag.py::hybrid_search` (159) | `$rankFusion` com `$vectorSearch` + `$search` (`compound`), pesos 0,7/0,3; cai para `vector_search` se faltar suporte/índice | `chamados` |
 | "A foto é do produto certo?" | `rag.py::verificar_identidade` (147) | `$vectorSearch` só com o vetor da imagem, sem filtro de SKU, 30 resultados (+1 busca filtrada por sku se ele não aparecer); decisão relativa em `decidir_identidade` | `catalogo_fotos` |
@@ -139,7 +142,7 @@ Nome dos índices (padrões em `config.py`): `defeitos_vector_index` (vetorial d
 - Cenários prontos da demo (pedido, foto, descrição) -> `frontend/src/tabs/Portal.jsx` (`CENARIOS`, linha 32) e as fotos em `seed_images/`.
 - Sugestão de resolução por classificação na Revisão -> `frontend/src/tabs/Revisao.jsx` (`SUGESTAO`, linha 11).
 - Adicionar uma rota -> `backend/main.py` (decorator `@app.get/post`; erro de negócio via `SafeQueryError`, o status por tipo está em `_STATUS_POR_KIND`) e um método novo em `frontend/src/api.js`.
-- Trocar modo da busca (híbrida x vetorial) -> `Portal.jsx:136` (constante `modo`); a lógica está em `backend/rag.py`.
+- Trocar modo da busca (híbrida x vetorial) -> `Portal.jsx:137` (constante `modo`); a lógica está em `backend/rag.py`.
 - Mudar a query de precedentes (pesos, `numCandidates`, filtro) -> `backend/rag.py::hybrid_search` / `vector_search` (`NUM_CANDIDATES`, `LIMIT` no topo do arquivo).
 - Regra de "foto do produto errado" -> `backend/rag.py` (`IDENTIDADE_THRESHOLD`, `IDENTIDADE_MARGEM`, função pura `decidir_identidade`, consulta `verificar_identidade`); vetor só da imagem em `backend/voyage.py::embed_imagem`; testes em `backend/tests/test_identidade.py`; medição em `eval/run_quality.py`.
 - Prompt e formato do veredito do Claude -> `backend/llm.py` (`SYSTEM`, `VEREDITO_TOOL`, `_normalizar_veredito`); o teto de confiança sob suspeita de manipulação é `CONFIANCA_MAX_SOB_ALERTA`.
