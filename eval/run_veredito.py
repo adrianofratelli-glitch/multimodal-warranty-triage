@@ -127,7 +127,8 @@ async def _run(gab: dict, rodadas: int, juiz: bool, ids: set[str] | None) -> dic
             linha = {**base, **vc.avaliar(v, c, it["precedentes"], it["cat"]),
                      "racional": v.get("racional"), "sinais": v.get("sinais_observados"),
                      "modo_llm": v.get("_meta", {}).get("mode"), "latency_ms": v.get("_meta", {}).get("latency_ms"),
-                     "resolucoes_recuperadas": [p.get("resolucao_final") for p in it["precedentes"]]}
+                     "resolucoes_recuperadas": [mascarar_pii(str(p.get("resolucao_final") or ""))[:200]
+                                                for p in it["precedentes"]]}
             if not linha["valido"]:
                 linha["fallback_motivo"] = v.get("_meta", {}).get("fallback_motivo")
             if juiz and linha["valido"]:
@@ -141,7 +142,8 @@ async def _run(gab: dict, rodadas: int, juiz: bool, ids: set[str] | None) -> dic
     return {
         "model": MODEL, "juiz_model": JUIZ_MODEL if juiz else None, "erros_preparo": erros_prep,
         "recuperacao": {cid: {"modo": it.get("modo"), "rerank": it.get("rerank"), "categoria": it["cat"],
-                              "precedentes": [{k: p.get(k) for k in ("numero_chamado", "resolucao_final", "score")}
+                              "precedentes": [{"numero_chamado": p.get("numero_chamado"), "score": p.get("score"),
+                                               "resolucao_final": mascarar_pii(str(p.get("resolucao_final") or ""))[:200]}
                                               for p in it.get("precedentes", [])]}
                         for cid, it in prep.items()},
         **resumir(resultado),

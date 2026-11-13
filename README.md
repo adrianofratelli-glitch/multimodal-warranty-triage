@@ -106,7 +106,7 @@ cd ../frontend && node --test tests/*.test.mjs   # HTTP deadline + display rules
 LIVE_API_URL=http://127.0.0.1:8100 backend/.venv/bin/pytest -q backend/tests/adversarial/test_live_adversarial.py
 ```
 
-`backend/tests/adversarial/` covers hostile uploads (text/SVG/PDF/GIF/WebP disguised as JPEG, decompression bombs, truncated files, EXIF with GPS, traversal in names and checklist ids), NoSQL operator injection, prompt injection in the report and written inside the photo, dilution of the injection signal in a long report, PII in prompts/traces, Grove timeout/429/5xx/slow gateway, Langfuse down, parallel identical submissions and concurrent reviews. In the public CI the tests that need the private `pov-shared` package are skipped.
+`backend/tests/adversarial/` covers hostile uploads (text/SVG/PDF/GIF/WebP disguised as JPEG, decompression bombs, truncated files, EXIF with GPS, traversal in names and checklist ids), NoSQL operator injection, prompt injection in the report and written inside the photo, dilution of the injection signal in a long report, PII in prompts/traces, Grove timeout/429/5xx/slow gateway, Langfuse down, parallel identical submissions and concurrent reviews. In the public CI the tests that need the private `pov-shared` package (marked `requires_shared`: masking, injection heuristic on the report and on precedents, gateway resilience) are skipped, so they only run locally with `pov-shared` installed.
 
 Docker: `docker build --build-context shared=../_shared -t warranty-triage . && docker run --env-file .env -p 18081:8080 warranty-triage`.
 

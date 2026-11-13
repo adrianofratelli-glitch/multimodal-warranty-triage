@@ -243,3 +243,9 @@ def test_precedentes_do_seed_nao_disparam_alerta():
 def test_avaliar_precedentes_vazio_e_sem_texto():
     assert guardrails_triagem.avaliar_precedentes([])["suspeito"] is False
     assert guardrails_triagem.avaliar_precedentes([{"resolucao_final": None}])["suspeito"] is False
+
+
+@requires_shared
+def test_avaliar_precedentes_checa_o_campo_reserva_descricao():
+    res = guardrails_triagem.avaliar_precedentes([{"numero_chamado": "CHM-X", "descricao": INJECAO}])
+    assert res["suspeito"] is True and res["campo"] == "descricao" and res["numero_chamado"] == "CHM-X"

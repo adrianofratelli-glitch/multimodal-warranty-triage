@@ -87,7 +87,8 @@ def avaliar_precedentes(precedentes: list[dict]) -> dict:
     Devolve {suspeito, clausula, numero_chamado} do primeiro precedente suspeito; nunca lança.
     """
     for p in precedentes or []:
-        for campo in ("descricao_cliente", "resolucao_final"):
+        # "descricao" é o campo reserva do relato (o mesmo fallback de llm._montar_contexto)
+        for campo in ("descricao_cliente", "descricao", "resolucao_final"):
             texto = str(p.get(campo) or "")
             if not texto.strip():
                 continue
