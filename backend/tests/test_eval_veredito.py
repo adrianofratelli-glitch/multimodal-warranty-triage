@@ -128,7 +128,7 @@ def test_gabarito_veredito_rascunho_coerente_com_seed():
     produtos, catalogo, seed = _backend()
     validado = {c["id"]: c for c in json.loads((EVAL / "gabarito_qualidade.json").read_text(encoding="utf-8"))["busca"]}
     ids = [c["id"] for c in gab["casos"]]
-    assert len(ids) == len(set(ids)) == 24
+    assert len(ids) == len(set(ids)) == 25
     for c in gab["casos"]:
         assert c["sku"] in produtos and (ROOT / c["imagem"]).exists()
         assert set(c["checklist"]) <= set(catalogo[produtos[c["sku"]]["categoria"]])
@@ -203,3 +203,14 @@ def test_reavaliar_relatorio_gravado_sem_llm():
     assert [r["decisao_ok_rate"] for r in res["rodadas"]] == [1.0, 1.0]
     assert res["rodadas"][0]["racional_sustenta_rate"] == 1.0  # "mau_uso" com sublinhado conta
     assert res["variancia"]["mesma_decisao_rate"] == 1.0 and res["rodadas"][0]["juiz"]["n"] == 1
+
+
+@pytest.mark.parametrize("racional,sustenta", [
+    ("A foto de catálogo impossibilita a confirmação visual do defeito.", True),
+    ("Impossibilitando distinguir entre fábrica e mau uso.", True),
+    ("A ausência de foto do defeito impede classificação conclusiva.", True),
+    ("A imagem por si só não sustenta a causa.", True),
+    ("A trava da base impede o giro e o pistão não sustenta o peso.", False),  # descrição do defeito
+])
+def test_incerteza_nao_casa_com_descricao_do_defeito(racional, sustenta):
+    assert vc.checar_coerencia(_v("inconclusivo", racional=racional))["racional_sustenta"] is sustenta

@@ -11,7 +11,7 @@ nas rodadas, então a variância medida é só a do modelo. Só LÊ o banco; nã
 
 Checagens determinísticas (`eval/veredito_checks.py`) vêm primeiro; o juiz (`--juiz`, outro modelo via
 Grove, `EVAL_JUDGE_MODEL`, padrão claude-sonnet-5-5) é a segunda opinião sobre lastro e coerência e não
-vê as fotos. Custo: (24 vereditos [+ 24 juízes]) x rodadas chamadas via Grove + ~23 embeddings Voyage.
+vê as fotos. Custo: (25 vereditos [+ 25 juízes]) x rodadas chamadas via Grove + ~23 embeddings Voyage.
 Exit 0 sempre (o gabarito é rascunho e não tem piso).
 """
 

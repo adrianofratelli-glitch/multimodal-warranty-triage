@@ -46,7 +46,10 @@ TERMOS_CLASSE = {
 INCERTEZA = re.compile(
     r"inconclusiv|nao (?:e|foi) possivel|insuficiente|nao (?:permite|mostra|evidencia|exibe|apresenta|revela|ha evid)"
     r"|sem evidencia|incert|indetermin|dificil (?:determinar|afirmar|concluir)|nao (?:se )?(?:pode|consegue) (?:afirmar|determinar|confirmar)"
-    r"|nao visivel|nao e visivel|sem sinal|mais fotos|imagem (?:nao|sem)|impossibilit|impede|nao (?:sustenta|confirma)"
+    r"|nao visivel|nao e visivel|sem sinal|mais fotos|imagem (?:nao|sem)"
+    # "impede"/"impossibilita" só com o objeto epistêmico: "o defeito impede a base de girar" não é incerteza
+    r"|(?:impossibilit\w*|impede\w*) (?:a |de |uma )?(?:confirma|determina|distingui|afirma|conclu|classifica|identifica|avalia)"
+    r"|(?:imagem|foto)(?: por si so)? nao (?:sustenta|confirma|permite)"
 )
 PRECEDENTE = re.compile(r"precedente|historic|casos? (?:semelhante|similar|anterior|parecido)|chamados? (?:semelhante|similar|anterior)")
 NEGACAO_ANTES = re.compile(r"(?:sem|nenhum|nenhuma|nao ha|nao existem?|ausencia de|faltam|base(?: historica)? fria)\W+(?:\w+\W+){0,2}$")
