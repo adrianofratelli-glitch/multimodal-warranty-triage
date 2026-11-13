@@ -83,6 +83,13 @@ System prompt e schema da tool levam `cache_control: {"type": "ephemeral"}` — 
 - **Prazo no frontend** (`frontend/src/api.js`, `boundedRequest`): requisições comuns são abortadas em 30 s e o upload da análise em 300 s, cobrindo headers, corpo e as tentativas já previstas; resposta 2xx com JSON incompleto vira erro explícito, sem nova política de retry. Regressão em `frontend/tests/http-deadline.test.mjs`.
 - **Paginação real por cursor** em `/api/chamados/pendentes` (`created_at`+`_id`, não `skip`) — um `to_list(length=50)` sem paginação escondia permanentemente os casos mais antigos acima de 50 pendentes.
 
+## Como a qualidade é medida (`eval/`)
+
+- `eval/run_quality.py` (gabarito validado pelo usuário em 2026-11-12): busca de precedentes (20 consultas, recall@1/@3 e MRR) e identidade da foto (30 casos). É o único com piso no eval semanal.
+- `eval/run_veredito.py` (gabarito `eval/gabarito_veredito.draft.json`, RASCUNHO, 24 casos): roda o caminho do Portal (`hybrid_search` + `$rerank`, `avaliar_instrucao`, `analisar_veredito`) e confere, sem LLM, a decisão que a política deriva da causa (fábrica/transporte → aprovado, mau uso → negado, inconclusivo → revisão humana, as mesmas sugestões de `Revisao.jsx`), afirmações sem lastro nos precedentes recuperados, coerência do racional e alerta de injeção (`eval/veredito_checks.py`). Um segundo modelo via Grove faz de juiz, sem ver a foto. A recuperação é feita uma vez e as rodadas medem a variância do modelo. O modelo não recebe política nem cláusula: o lastro possível é o relato, as fotos e os precedentes.
+- `eval/run_busca_ampliada.py` (gabarito `eval/gabarito_busca_ampliada.draft.json`, RASCUNHO, 21 consultas): só foto, variante, vaga, só checklist, fora do catálogo, inglês, digitação, contradição e ruído, com o gap entre o 1º e o 2º score do `$rerank` como sinal de empate.
+- Números e decisão em `docs/adr/0005-eval-veredito.md`.
+
 ## Por que não há `agent-behavior.md`
 
 Esta PoV **não usa LangGraph nem nenhum framework de agente com grafo de estados, checkpointer ou memória persistente**. `backend/llm.py` faz uma única chamada (`AsyncGroveClient().messages.create`) ao Claude, com tool use forçado, sem loop de decisão, sem múltiplos nodes, sem ferramentas que o modelo escolhe invocar dinamicamente. É "LLM com visão + tool use obrigatório", não um agente autônomo. Se essa PoV evoluir para ter um agente de verdade (ex.: um step de triagem que decide dinamicamente pedir mais fotos ao cliente), crie `agent-behavior.md` nessa hora.

@@ -8,3 +8,4 @@ Registro curto das decisões que mudam como a PoV se comporta ou o que ela mede.
 | [0002](0002-identidade-so-imagem-sinal-relativo.md) | Identidade do produto com vetor só da imagem e sinal relativo ao catálogo | aceita |
 | [0003](0003-embedding-na-aplicacao-sem-autoembed.md) | Embedding multimodal calculado na aplicação (sem autoEmbed) | aceita |
 | [0004](0004-rerank-precedentes.md) | `$rerank` nativo do Atlas sobre os precedentes; sem quantização de vetor por ora | aceita |
+| [0005](0005-eval-veredito.md) | Eval do veredito do LLM (política, lastro, coerência, variância) e busca ampliada, com gabaritos RASCUNHO separados | aceita |

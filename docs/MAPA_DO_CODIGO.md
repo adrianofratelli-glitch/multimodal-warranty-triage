@@ -41,6 +41,11 @@ frontend/                        React + Vite + LeafyGreen
   vite.config.js                 Porta 5190 e proxy de /api e /media para 8100 (POV_API_URL troca o alvo)
   tests/http-deadline.test.mjs   Teste do prazo do cliente HTTP
   tests/triagem.test.mjs         Testes das regras de rótulo (src/lib/triagem.js)
+eval/
+  run_quality.py                 Eval validado: busca de precedentes (20) e identidade da foto (30)
+  run_veredito.py                Eval do veredito do LLM (política, lastro, coerência, variância, juiz via Grove)
+  veredito_checks.py             Checagens determinísticas do veredito (funções puras)
+  run_busca_ampliada.py          Busca ampliada (só foto, vaga, fora do catálogo...) com gabarito RASCUNHO
 scripts/
   reset_demo.py                  Recria todos os dados da demo num comando (seed + índices + validação)
   bench_documento_unico.py       Benchmark "1 documento" x "3 coleções" x transação
@@ -170,4 +175,6 @@ Rodar (do README): `cd backend && ./.venv/bin/pytest -q` (unitário e adversaria
 | `backend/tests/adversarial/test_mongo_resilience_adversarial.py` | Falhas do MongoDB viram erro tratado |
 | `backend/tests/adversarial/test_demo_guard_adversarial.py` | Trava de escrita em banco da demo |
 | `backend/tests/adversarial/test_live_adversarial.py` | Cenários reais contra a API rodando |
+| `backend/tests/test_eval_quality.py` | Métricas e gabarito validado de `eval/run_quality.py` |
+| `backend/tests/test_eval_veredito.py` | Checagens do veredito (`eval/veredito_checks.py`), política = `Revisao.jsx`, gabaritos RASCUNHO e busca ampliada |
 | `frontend/tests/http-deadline.test.mjs` | Prazo do cliente HTTP |

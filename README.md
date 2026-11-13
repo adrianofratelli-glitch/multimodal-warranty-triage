@@ -123,6 +123,19 @@ backend/.venv/bin/python eval/run_quality.py --secoes veredito --out /tmp/warran
 - **Does the photo match the product?** The full matrix of the 5 demo photos × 6 order SKUs (30 cases: 5 correct, 4 close variant of the same category, 16 other category, 5 SKU without a catalog photo): accuracy, false rejection and false acceptance of `rag.decidir_identidade`. The check embeds the image only (the case text names the claimed SKU and biased the score) and compares the order's SKU with the best other SKU in the whole catalog: margin ≤ −0.02 → `divergente`; |margin| < 0.02 → `inconclusivo` (review; a tie between variants is never approved); otherwise score < 0.80 → `inconclusivo`; otherwise `aprovado`. A SKU with no reference photo returns `sem_referencia` (human review), not `divergente`. Measured on 2026-11-12: accuracy 1.0, false acceptance 0, false rejection 0 (the previous rule: 0.767 / 0.08 / 0 on the same 30 cases). Small sample: changing a threshold requires re-running the eval.
 - **Suggested cause (optional, LLM):** the verdict is valid (not the manual-review fallback) and its cause is the precedent's or `inconclusivo`.
 
+### Verdict and extended-search evals (draft answer keys)
+
+Two more evals use answer keys marked **RASCUNHO** (draft: not yet labeled by a human, so they have no floor in the weekly eval). The validated key above is unchanged.
+
+```bash
+backend/.venv/bin/python eval/run_veredito.py --rodadas 2 --juiz --out /tmp/warranty_veredito.json   # 24 verdicts x 2 via the gateway (+ judge)
+backend/.venv/bin/python eval/run_veredito.py --reavaliar /tmp/warranty_veredito.json                # re-run only the deterministic checks
+backend/.venv/bin/python eval/run_busca_ampliada.py --out /tmp/warranty_busca_ampliada.json          # 21 extra search queries, no LLM
+```
+
+- **Verdict** (`eval/gabarito_veredito.draft.json`, 24 cases): the Portal path (`$rankFusion` + `$rerank`, injection heuristic, Claude with forced tool use). The decision follows the warranty policy shown to reviewers (factory or shipping defect → approved, misuse → denied, inconclusive → human review). Deterministic checks first: valid verdict, acceptable and strict decision, approved-vs-denied flips, claims about precedents/scores/case numbers that were not retrieved, rationale consistent with the cause, injection flagged where expected. A second model through the gateway acts as a judge (no image) and its agreement is reported. Retrieval runs once, so the round-to-round spread is the model's. Measured on 2026-11-13 (`claude-sonnet-4-6`, 2 rounds): valid 1.0, acceptable decision 1.0, strict decision 0.625 / 0.583 (demo photos show no visible defect, so ~10 cases go to human review), 0 flips, 0 unsupported claims, rationale consistent 1.0, injection flagged 2/2, judge agreement 1.0; same cause and decision in 23/24 cases (max confidence spread 0.27). Details in `docs/adr/0005-eval-veredito.md`.
+- **Extended search** (`eval/gabarito_busca_ampliada.draft.json`, 21 queries): photo only, photo of another variant, vague report, checklist only, product outside the catalog, English, typos, checklist contradicting the report, noisy report. Recall@1 and MRR 1.0 on the 19 queries with a relevant precedent; an unknown category returns no precedents and an unknown SKU gets identity `sem_referencia`. Vague and photo-only queries are technical ties (top-1/top-2 rerank gap 0.002–0.098 vs ≥ 0.17 for specific queries).
+
 ## Resilience and observability (on by default)
 
 - **Reranking:** if MongoDB rejects the aggregation with `$rerank` (stage unavailable, Voyage down, quota), the same search runs without it and the UI shows the reason; timeouts, missing indexes and connection errors still surface without re-running the query. The query text sent to the reranker is the PII-masked phrase. `RERANK_MODEL` (default `rerank-2.5-lite`; empty disables) selects the model.
