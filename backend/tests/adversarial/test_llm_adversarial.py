@@ -205,3 +205,41 @@ def test_trace_receives_only_masked_text(monkeypatch):
     texto = mascarar_pii("cliente CPF 529.982.247-25 email a@b.com")
     langfuse_tracing.start_trace(name="t", input_text=texto)
     assert "529.982.247-25" not in calls["input"] and "a@b.com" not in calls["input"]
+
+
+@requires_shared
+def test_resolucao_do_revisor_entra_mascarada_cortada_e_com_alerta():
+    # resolucao_final é texto livre do revisor (até 2000 caracteres no /api/revisar) e vai ao prompt
+    # como precedente: mesma máscara de PII, corte e heurística de instrução do relato.
+    fake, create = _fake_client(return_value=_resp({
+        "classificacao": "defeito_fabrica", "confianca": 0.95, "racional": "x", "sinais_observados": [],
+        "alerta_manipulacao": False,
+    }))
+    resolucao = "Troca aprovada, cliente CPF 529.982.247-25. " + INJECAO + " " + "x" * 1800
+    prec = [{"numero_chamado": "CHM-2026-ABC123", "score": 0.9, "categoria": "cadeira", "tipo_defeito": "estrutural",
+             "descricao_cliente": "Perna trincada.", "resolucao_final": resolucao}]
+    with patch("llm._get_client", return_value=fake):
+        v = _run(prec=prec)
+    texto = create.call_args.kwargs["messages"][0]["content"][-1]["text"]
+    linha = next(ln for ln in texto.splitlines() if "resolvido como:" in ln)
+    assert "529.982.247-25" not in texto
+    assert len(linha.split("resolvido como: ", 1)[1]) <= guardrails_triagem.CORTE_RESOLUCAO_PRECEDENTE
+    assert v["alerta_manipulacao"] is True and v["confianca"] <= llm.CONFIANCA_MAX_SOB_ALERTA
+    assert any("precedentes (CHM-2026-ABC123)" in a for a in v["alertas"])
+
+
+@requires_shared
+def test_precedentes_do_seed_nao_disparam_alerta():
+    from seed_data import CHAMADOS_SEED
+
+    assert guardrails_triagem.avaliar_precedentes(CHAMADOS_SEED)["suspeito"] is False
+    # resoluções que o revisor recebe como sugestão (Revisao.jsx) também não
+    sugestoes = [{"resolucao_final": t} for t in (
+        "Troca aprovada — defeito de fabrica confirmado.", "Reenvio aprovado — avaria de transporte confirmada.",
+        "Garantia negada — caracterizado mau uso pelo cliente.", "Solicitar mais fotos ao cliente — analise inconclusiva.")]
+    assert guardrails_triagem.avaliar_precedentes(sugestoes)["suspeito"] is False
+
+
+def test_avaliar_precedentes_vazio_e_sem_texto():
+    assert guardrails_triagem.avaliar_precedentes([])["suspeito"] is False
+    assert guardrails_triagem.avaliar_precedentes([{"resolucao_final": None}])["suspeito"] is False

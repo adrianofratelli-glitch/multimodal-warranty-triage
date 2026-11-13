@@ -20,7 +20,12 @@ import anthropic
 
 import config
 import observability
-from guardrails_triagem import mascarar_pii
+from guardrails_triagem import (
+    CORTE_RELATO_PRECEDENTE,
+    CORTE_RESOLUCAO_PRECEDENTE,
+    avaliar_precedentes,
+    mascarar_pii,
+)
 from shared_lib import grove_client
 
 logger = logging.getLogger("mm_garantia.llm")
@@ -128,7 +133,8 @@ _FALLBACK = {
 _CLASSIFICACOES = {"defeito_fabrica", "defeito_transporte", "mau_uso", "inconclusivo"}
 
 
-def _normalizar_veredito(value, *, meta: dict, alerta_texto: dict | None = None) -> dict:
+def _normalizar_veredito(value, *, meta: dict, alerta_texto: dict | None = None,
+                         alerta_precedentes: dict | None = None) -> dict:
     """Enforce the business contract even if the provider returns malformed tool input."""
     veredito = dict(value) if isinstance(value, dict) else dict(_FALLBACK)
     valid_classification = veredito.get("classificacao") in _CLASSIFICACOES
@@ -160,6 +166,11 @@ def _normalizar_veredito(value, *, meta: dict, alerta_texto: dict | None = None)
         alertas.append("modelo: instrução detectada no relato, nos precedentes ou no texto da imagem")
     if alerta_texto and alerta_texto.get("suspeito"):
         alertas.append(f"heurística do relato: {alerta_texto.get('clausula') or 'instrução embutida'}")
+    if alerta_precedentes and alerta_precedentes.get("suspeito"):
+        alertas.append(
+            f"heurística dos precedentes ({alerta_precedentes.get('numero_chamado') or '?'}): "
+            f"{alerta_precedentes.get('clausula') or 'instrução embutida'}"
+        )
     veredito["alerta_manipulacao"] = bool(alertas)
     veredito["alertas"] = alertas
     if alertas:
@@ -179,18 +190,21 @@ def _montar_contexto(precedentes: list[dict]) -> str:
         return "(sem precedentes recuperados — base historica ainda fria)"
     linhas = []
     for p in precedentes:
-        # Relatos de OUTROS clientes: mascarados (PII) e cortados — são dado, não instrução.
-        relato = mascarar_pii(str(p.get("descricao_cliente", p.get("descricao", ""))))[:400]
+        # Relatos de OUTROS clientes e a resolução digitada pelo revisor (texto livre, até 2000
+        # caracteres no /api/revisar): mascarados (PII) e cortados — são dado, não instrução.
+        relato = mascarar_pii(str(p.get("descricao_cliente", p.get("descricao", ""))))[:CORTE_RELATO_PRECEDENTE]
+        resolucao = mascarar_pii(str(p.get("resolucao_final") or "?"))[:CORTE_RESOLUCAO_PRECEDENTE]
         linhas.append(
             f"- [score {p.get('score', 0):.3f}] "
             f"{p.get('categoria', '?')}/{p.get('tipo_defeito', '?')}: "
             f"\"{relato}\" "
-            f"=> resolvido como: {p.get('resolucao_final', '?')}"
+            f"=> resolvido como: {resolucao}"
         )
     return "\n".join(linhas)
 
 
-def _fallback(start: float, precedentes: list[dict], alerta_texto: dict | None, motivo: str) -> dict:
+def _fallback(start: float, precedentes: list[dict], alerta_texto: dict | None, motivo: str,
+              alerta_precedentes: dict | None = None) -> dict:
     observability.metrics.bump("verdict_manual_review_fallback")
     return _normalizar_veredito(
         _FALLBACK,
@@ -202,6 +216,7 @@ def _fallback(start: float, precedentes: list[dict], alerta_texto: dict | None, 
             "precedentes_usados": len(precedentes),
         },
         alerta_texto=alerta_texto,
+        alerta_precedentes=alerta_precedentes,
     )
 
 
@@ -224,6 +239,9 @@ async def analisar_veredito(
     `guardrails_triagem.avaliar_instrucao` sobre o relato do cliente.
     """
     contexto = _montar_contexto(precedentes)
+    # Precedente também é texto de terceiros (relato de outro cliente, resolução livre do revisor):
+    # a mesma heurística do relato limita a confiança e mostra o motivo ao revisor.
+    alerta_prec = avaliar_precedentes(precedentes)
     b64 = base64.standard_b64encode(imagem_bytes).decode()
     n_extra = len(imagens_extra or [])
     user_text = (
@@ -265,12 +283,12 @@ async def analisar_veredito(
             "Claude verdict unavailable (%s: %s); preserving case for human review",
             type(e).__name__, str(e)[:200],
         )
-        return _fallback(start, precedentes, alerta_texto, type(e).__name__)
+        return _fallback(start, precedentes, alerta_texto, type(e).__name__, alerta_prec)
     except Exception:
         # Bug de programação (TypeError/KeyError internos): fallback seguro para o
         # usuário, mas log CRITICAL com traceback para diagnosticar de verdade.
         logger.critical("Unexpected error calling Claude verdict — programming bug suspected", exc_info=True)
-        return _fallback(start, precedentes, alerta_texto, "erro_interno")
+        return _fallback(start, precedentes, alerta_texto, "erro_interno", alerta_prec)
     latency_ms = int((time.perf_counter() - start) * 1000)
 
     usage = resp.usage
@@ -290,7 +308,7 @@ async def analisar_veredito(
             getattr(resp, "stop_reason", None),
         )
         observability.metrics.bump("verdict_sem_tool_use")
-        return _fallback(start, precedentes, alerta_texto, "sem_tool_use")
+        return _fallback(start, precedentes, alerta_texto, "sem_tool_use", alerta_prec)
     return _normalizar_veredito(tool_input, meta={
         "model": resp.model,
         "mode": "claude_tool_use",
@@ -301,4 +319,4 @@ async def analisar_veredito(
         "cache_read_tokens": getattr(usage, "cache_read_input_tokens", 0),
         "cache_write_tokens": getattr(usage, "cache_creation_input_tokens", 0),
         "precedentes_usados": len(precedentes),
-    }, alerta_texto=alerta_texto)
+    }, alerta_texto=alerta_texto, alerta_precedentes=alerta_prec)

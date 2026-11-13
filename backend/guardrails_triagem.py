@@ -73,3 +73,26 @@ def avaliar_instrucao(texto: str) -> dict:
         "por_clausula": bool(suspeito and res.by_clause),
         "clausula": mascarar_pii(culpada)[:200] if suspeito and culpada else None,
     }
+
+
+# Texto de precedente que vai ao prompt: relato de outro cliente e resolução digitada pelo revisor
+# (POST /api/revisar aceita até 2000 caracteres). Mesmo tratamento do relato: PII mascarada e corte.
+CORTE_RELATO_PRECEDENTE = 400
+CORTE_RESOLUCAO_PRECEDENTE = 200
+
+
+def avaliar_precedentes(precedentes: list[dict]) -> dict:
+    """Heurística de instrução sobre o relato e a resolução de cada precedente.
+
+    Devolve {suspeito, clausula, numero_chamado} do primeiro precedente suspeito; nunca lança.
+    """
+    for p in precedentes or []:
+        for campo in ("descricao_cliente", "resolucao_final"):
+            texto = str(p.get(campo) or "")
+            if not texto.strip():
+                continue
+            res = avaliar_instrucao(texto)
+            if res.get("suspeito"):
+                return {"suspeito": True, "clausula": res.get("clausula"), "campo": campo,
+                        "numero_chamado": p.get("numero_chamado")}
+    return {"suspeito": False, "clausula": None, "campo": None, "numero_chamado": None}
